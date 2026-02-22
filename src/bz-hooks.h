@@ -1,6 +1,6 @@
-/* bz-search-engine.h
+/* bz-hooks.h
  *
- * Copyright 2025 Adam Masciola
+ * Copyright 2026 Eva M
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,28 +20,22 @@
 
 #pragma once
 
-#include <gtk/gtk.h>
-#include <libdex.h>
+#include "bz-entry-group.h"
+#include "bz-hook.h"
 
 G_BEGIN_DECLS
 
-#define BZ_TYPE_SEARCH_ENGINE (bz_search_engine_get_type ())
-G_DECLARE_FINAL_TYPE (BzSearchEngine, bz_search_engine, BZ, SEARCH_ENGINE, GObject)
-
-BzSearchEngine *
-bz_search_engine_new (void);
-
-GListModel *
-bz_search_engine_get_model (BzSearchEngine *self);
-
-void
-bz_search_engine_set_model (BzSearchEngine *self,
-                            GListModel     *model);
+DexFuture *
+bz_execute_hook (BzHook               *hook,
+                 BzHookTransactionType ts_type,
+                 const char           *ts_appid,
+                 BzEntryGroup         *group);
 
 DexFuture *
-bz_search_engine_query (BzSearchEngine    *self,
-                        const char *const *terms);
+bz_run_hook_emission (GListModel           *hooks,
+                      BzHookSignal          signal,
+                      BzHookTransactionType ts_type,
+                      const char           *ts_appid,
+                      BzEntryGroup         *group);
 
 G_END_DECLS
-
-/* End of bz-search-engine.h */
