@@ -20,29 +20,6 @@ template $BzFullView: Adw.Bin {
           styles ["title"]
         };
       }
-
-      [end]
-      Button progress_button {
-        styles [
-          "flat",
-          "global-progress-button",
-        ]
-
-        can-focus: bind template.state as <$BzStateInfo>.transaction-manager as <$BzTransactionManager>.active;
-        can-target: bind progress_button.can-focus;
-
-        action-name: "window.open-library";
-        has-tooltip: true;
-        tooltip-text: _("Open App Library");
-
-        child: $BzGlobalProgress {
-          expand-size: 125;
-          state: bind template.state as <$BzStateInfo>;
-          active: bind template.state as <$BzStateInfo>.transaction-manager as <$BzTransactionManager>.active;
-          pending: bind template.state as <$BzStateInfo>.transaction-manager as <$BzTransactionManager>.pending;
-          settings: bind template.state as <$BzStateInfo>.settings;
-        };
-      }
     }
 
     content: Adw.ViewStack stack {
@@ -118,11 +95,11 @@ template $BzFullView: Adw.Bin {
                   margin-bottom: 15;
                   spacing: 20;
 
-                  Adw.Banner {
-                    title: _("Installing .flatpak bundles is not yet supported");
-                    visible: bind template.ui-entry as <$BzResult>.object as <$BzFlatpakEntry>.is-bundle as <bool>;
-                    revealed: true;
-                  }
+                  // Adw.Banner {
+                  //   title: _("Installing .flatpak bundles is not yet supported");
+                  //   visible: bind template.ui-entry as <$BzResult>.object as <$BzFlatpakEntry>.is-bundle as <bool>;
+                  //   revealed: true;
+                  // }
 
                   Adw.Banner {
                     title: _("This is a local preview, some details may differ from the published listing");
@@ -269,6 +246,7 @@ template $BzFullView: Adw.Bin {
                             wide: true;
                             entry-group: bind template.entry-group as <$BzEntryGroup>;
                             state: bind template.state as <$BzStateInfo>;
+                            settings: bind template.state as <$BzStateInfo>.settings;
                             update => $update_cb(template);
                           }
                         }
@@ -289,11 +267,11 @@ template $BzFullView: Adw.Bin {
                           homogeneous: true;
 
                           $BzContextTile download_size_tile {
-                            label: bind $get_size_label(
+                            label: bind try {$get_size_label(
                               $is_zero(template.entry-group as <$BzEntryGroup>.removable) as <bool>,
                               template.entry-group as <$BzEntryGroup>.ui-entry as <$BzResult>.object as <$BzFlatpakEntry>.runtime as <$BzResult>.object as <$BzEntry>.installed,
                               template.entry-group as <$BzEntryGroup>.ui-entry as <$BzResult>.object as <$BzFlatpakEntry>.runtime as <$BzResult>.object as <$BzEntry>.size,
-                            ) as <string>;
+                            ) as <string>, $get_size_label($is_zero(template.entry-group as <$BzEntryGroup>.removable) as <bool>,0,0) as <string>};
                             has-tooltip: true;
                             tooltip-text: bind $format_size_tooltip(template.ui-entry as <$BzResult>.object as <$BzEntry>.size) as <string>;
                             lozenge-style: "grey";
@@ -443,6 +421,7 @@ template $BzFullView: Adw.Bin {
                         visible: false;
                         entry-group: bind template.entry-group as <$BzEntryGroup>;
                         state: bind template.state as <$BzStateInfo>;
+                        settings: bind template.state as <$BzStateInfo>.settings;
                         update => $update_cb(template);
                       }
 

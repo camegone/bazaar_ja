@@ -25,7 +25,6 @@
 
 #include "bz-addons-dialog.h"
 #include "bz-application.h"
-#include "bz-comet-overlay.h"
 #include "bz-curated-view.h"
 #include "bz-entry-group-util.h"
 #include "bz-entry-group.h"
@@ -34,7 +33,6 @@
 #include "bz-flathub-page.h"
 #include "bz-flatpak-entry.h"
 #include "bz-full-view.h"
-#include "bz-global-progress.h"
 #include "bz-hooks.h"
 #include "bz-io.h"
 #include "bz-library-page.h"
@@ -58,7 +56,6 @@ struct _BzWindow
   gboolean breakpoint_applied;
 
   /* Template widgets */
-  BzCometOverlay    *comet_overlay;
   AdwNavigationView *navigation_view;
   BzFullView        *full_view;
   BzSearchPage      *search_page;
@@ -114,8 +111,7 @@ static DexFuture *
 bulk_install_fiber (BulkInstallData *data);
 
 static DexFuture *
-transact (BzWindow  *self,
-          BzEntry   *entry,
+transact (BzEntry   *entry,
           gboolean   remove,
           GtkWidget *source);
 
@@ -303,7 +299,7 @@ browse_flathub_cb (BzWindow      *self,
 }
 
 static void
-open_search_cb (BzWindow       *self,
+open_search_cb (BzWindow     *self,
                 BzSearchPage *widget)
 {
   adw_view_stack_set_visible_child_name (self->main_view_stack, "search");
@@ -423,6 +419,51 @@ action_remove_group (GtkWidget  *widget,
 }
 
 static void
+action_cancel_group (GtkWidget  *widget,
+                     const char *action_name,
+                     GVariant   *parameter)
+{
+  BzWindow             *self     = BZ_WINDOW (widget);
+  const char           *id       = NULL;
+  BzTransactionManager *manager  = NULL;
+  BzBackend            *backend  = NULL;
+  GListModel           *trackers = NULL;
+  guint                 n_items  = 0;
+
+  id      = g_variant_get_string (parameter, NULL);
+  manager = bz_state_info_get_transaction_manager (self->state);
+  if (manager == NULL)
+    return;
+
+  backend = bz_state_info_get_backend (self->state);
+  if (backend == NULL)
+    return;
+
+  trackers = bz_transaction_manager_get_all_trackers (manager);
+  n_items  = g_list_model_get_n_items (trackers);
+
+  for (guint i = 0; i < n_items; i++)
+    {
+      g_autoptr (BzTransactionEntryTracker) tracker = NULL;
+      BzEntry    *entry                             = NULL;
+      const char *entry_id                          = NULL;
+
+      tracker = g_list_model_get_item (trackers, i);
+      entry   = bz_transaction_entry_tracker_get_entry (tracker);
+      if (entry == NULL)
+        continue;
+
+      entry_id = bz_entry_get_id (entry);
+      if (g_strcmp0 (entry_id, id) == 0)
+        {
+          if (bz_backend_cancel_task_for_entry (backend, entry))
+            g_object_set (tracker, "status", BZ_TRANSACTION_ENTRY_STATUS_CANCELLED, NULL);
+          break;
+        }
+    }
+}
+
+static void
 action_show_group (GtkWidget  *widget,
                    const char *action_name,
                    GVariant   *parameter)
@@ -443,7 +484,7 @@ action_show_group (GtkWidget  *widget,
     {
       AdwDialog *dialog = NULL;
 
-      dialog =bz_addons_dialog_new_single (group);
+      dialog = bz_addons_dialog_new_single (group);
       adw_dialog_present (dialog, GTK_WIDGET (self));
     }
   else
@@ -458,7 +499,7 @@ action_addons_group (GtkWidget  *widget,
   BzWindow   *self               = BZ_WINDOW (widget);
   const char *id                 = NULL;
   g_autoptr (BzEntryGroup) group = NULL;
-  AdwDialog  *addons_dialog      = NULL;
+  AdwDialog *addons_dialog       = NULL;
 
   id    = g_variant_get_string (parameter, NULL);
   group = bz_application_map_factory_convert_one (
@@ -548,20 +589,39 @@ launch_group_fiber (BzEntryGroup *group)
   for (guint i = 0; i < g_list_model_get_n_items (G_LIST_MODEL (store)); i++)
     {
       g_autoptr (BzEntry) entry = NULL;
+      const char *ref           = NULL;
+      gboolean    result        = FALSE;
 
       entry = g_list_model_get_item (G_LIST_MODEL (store), i);
-      if (BZ_IS_FLATPAK_ENTRY (entry) && bz_entry_is_installed (entry))
+
+      if (!BZ_IS_FLATPAK_ENTRY (entry) || !bz_entry_is_installed (entry))
+        continue;
+
+      ref = bz_flatpak_entry_get_addon_extension_of_ref (BZ_FLATPAK_ENTRY (entry));
+      if (ref != NULL)
         {
-          gboolean result = bz_flatpak_entry_launch (
-              BZ_FLATPAK_ENTRY (entry),
-              BZ_FLATPAK_INSTANCE (bz_state_info_get_backend (state)),
-              &local_error);
+          g_auto (GStrv) parts             = NULL;
+          BzApplicationMapFactory *factory = NULL;
+          g_autoptr (BzEntryGroup) parent  = NULL;
 
-          if (!result && window != NULL)
-            bz_show_error_for_widget (window, _ ("Failed to launch application"), local_error->message);
-
-          return result ? dex_future_new_true () : dex_future_new_for_error (g_steal_pointer (&local_error));
+          parts = g_strsplit (ref, "/", -1);
+          if (parts[0] != NULL && parts[1] != NULL)
+            {
+              factory = bz_state_info_get_application_factory (state);
+              parent  = bz_application_map_factory_convert_one (
+                  factory, gtk_string_object_new (parts[1]));
+              if (parent != NULL)
+                return launch_group_fiber (parent);
+            }
         }
+
+      result = bz_flatpak_entry_launch (
+          BZ_FLATPAK_ENTRY (entry),
+          BZ_FLATPAK_INSTANCE (bz_state_info_get_backend (state)),
+          &local_error);
+      if (!result && window != NULL)
+        bz_show_error_for_widget (window, _ ("Failed to launch application"), local_error->message);
+      return result ? dex_future_new_true () : dex_future_new_for_error (g_steal_pointer (&local_error));
     }
 
   return dex_future_new_false ();
@@ -617,9 +677,7 @@ bz_window_class_init (BzWindowClass *klass)
 
   g_object_class_install_properties (object_class, LAST_PROP, props);
 
-  g_type_ensure (BZ_TYPE_COMET_OVERLAY);
   g_type_ensure (BZ_TYPE_SEARCH_PAGE);
-  g_type_ensure (BZ_TYPE_GLOBAL_PROGRESS);
   g_type_ensure (BZ_TYPE_PROGRESS_BAR);
   g_type_ensure (BZ_TYPE_CURATED_VIEW);
   g_type_ensure (BZ_TYPE_FULL_VIEW);
@@ -629,7 +687,6 @@ bz_window_class_init (BzWindowClass *klass)
   gtk_widget_class_set_template_from_resource (widget_class, "/io/github/kolunmi/Bazaar/bz-window.ui");
   bz_widget_class_bind_all_util_callbacks (widget_class);
 
-  gtk_widget_class_bind_template_child (widget_class, BzWindow, comet_overlay);
   gtk_widget_class_bind_template_child (widget_class, BzWindow, navigation_view);
   gtk_widget_class_bind_template_child (widget_class, BzWindow, full_view);
   gtk_widget_class_bind_template_child (widget_class, BzWindow, toasts);
@@ -655,6 +712,7 @@ bz_window_class_init (BzWindowClass *klass)
 
   gtk_widget_class_install_action (widget_class, "window.install-group", "(sb)", action_install_group);
   gtk_widget_class_install_action (widget_class, "window.remove-group", "(sb)", action_remove_group);
+  gtk_widget_class_install_action (widget_class, "window.cancel-group", "s", action_cancel_group);
   gtk_widget_class_install_action (widget_class, "window.show-group", "s", action_show_group);
   gtk_widget_class_install_action (widget_class, "window.addons-group", "s", action_addons_group);
   gtk_widget_class_install_action (widget_class, "window.bulk-install", NULL, action_bulk_install);
@@ -734,7 +792,6 @@ has_inputs_changed (BzWindow          *self,
 static DexFuture *
 transact_fiber (TransactData *data)
 {
-  g_autoptr (BzWindow) self             = NULL;
   g_autoptr (GError) local_error        = NULL;
   g_autoptr (BzEntry) selected_entry    = NULL;
   g_autoptr (DexFuture) transact_future = NULL;
@@ -747,7 +804,6 @@ transact_fiber (TransactData *data)
   GdkDevice       *keyboard             = NULL;
   GdkModifierType  modifiers            = GDK_NO_MODIFIER_MASK;
 
-  bz_weak_get_or_return_reject (self, data->self);
 
   // Get ID early before any async operations
   if (data->group != NULL)
@@ -763,12 +819,14 @@ transact_fiber (TransactData *data)
       bazaar_id = g_application_get_application_id (g_application_get_default ());
       if (g_strcmp0 (id_dup, bazaar_id) == 0)
         {
-          bz_show_error_for_widget (GTK_WIDGET (self), _ ("You can't remove Bazaar from Bazaar!"), _ ("You can't remove Bazaar from Bazaar!"));
+          GtkWidget *window = NULL;
+          window = GTK_WIDGET (gtk_application_get_active_window (GTK_APPLICATION (g_application_get_default ())));
+          bz_show_error_for_widget (window, _ ("You can't remove Bazaar from Bazaar!"), _ ("You can't remove Bazaar from Bazaar!"));
           return dex_future_new_false ();
         }
     }
 
-  config = bz_state_info_get_main_config (self->state);
+  config = bz_state_info_get_main_config (bz_state_info_get_default ());
   if (config != NULL)
     hooks = bz_main_config_get_hooks (config);
 
@@ -839,7 +897,8 @@ transact_fiber (TransactData *data)
       // Show the dialog
       dialog_result = dex_await_object (
           bz_transaction_dialog_show (
-              GTK_WIDGET (self),
+              GTK_WIDGET (gtk_application_get_active_window (
+                  GTK_APPLICATION (g_application_get_default ()))),
               data->entry,
               data->group,
               data->remove,
@@ -859,7 +918,6 @@ transact_fiber (TransactData *data)
 
   // Perform the transaction
   transact_future = transact (
-      self,
       selected_entry,
       data->remove,
       data->source);
@@ -929,7 +987,7 @@ bz_window_show_entry (BzWindow *self,
   g_return_if_fail (BZ_IS_ENTRY (entry));
 
   group = bz_entry_group_new_for_single_entry (entry);
-  bz_window_show_group(self, group);
+  bz_window_show_group (self, group);
 }
 
 void
@@ -1010,8 +1068,7 @@ bz_window_get_state_info (BzWindow *self)
 }
 
 static DexFuture *
-transact (BzWindow  *self,
-          BzEntry   *entry,
+transact (BzEntry   *entry,
           gboolean   remove,
           GtkWidget *source)
 {
@@ -1029,7 +1086,7 @@ transact (BzWindow  *self,
         NULL, 0);
 
   return bz_transaction_manager_add (
-      bz_state_info_get_transaction_manager (self->state),
+      bz_state_info_get_transaction_manager (bz_state_info_get_default ()),
       transaction);
 }
 

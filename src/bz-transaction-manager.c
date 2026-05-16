@@ -95,6 +95,7 @@ enum
   PROP_CURRENT_PROGRESS,
   PROP_INSTALL_TRACKERS,
   PROP_REMOVAL_TRACKERS,
+  PROP_ALL_TRACKERS,
 
   LAST_PROP
 };
@@ -177,6 +178,9 @@ bz_transaction_manager_get_property (GObject    *object,
       break;
     case PROP_REMOVAL_TRACKERS:
       g_value_set_object (value, self->removal_trackers);
+      break;
+    case PROP_ALL_TRACKERS:
+      g_value_set_object (value, self->all_trackers);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -331,6 +335,13 @@ bz_transaction_manager_class_init (BzTransactionManagerClass *klass)
   props[PROP_REMOVAL_TRACKERS] =
       g_param_spec_object (
           "removal-trackers",
+          NULL, NULL,
+          G_TYPE_LIST_MODEL,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+  props[PROP_ALL_TRACKERS] =
+      g_param_spec_object (
+          "all-trackers",
           NULL, NULL,
           G_TYPE_LIST_MODEL,
           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
@@ -493,6 +504,13 @@ bz_transaction_manager_get_has_transactions (BzTransactionManager *self)
   return g_list_model_get_n_items (G_LIST_MODEL (self->transactions)) > 0;
 }
 
+GListModel *
+bz_transaction_manager_get_all_trackers (BzTransactionManager *self)
+{
+  g_return_val_if_fail (BZ_IS_TRANSACTION_MANAGER (self), NULL);
+  return G_LIST_MODEL (self->all_trackers);
+}
+
 DexFuture *
 bz_transaction_manager_add (BzTransactionManager *self,
                             BzTransaction        *transaction)
@@ -609,12 +627,12 @@ transaction_fiber (QueuedScheduleData *data)
   BzTransaction *transaction            = data->transaction;
   DexPromise    *promise                = data->promise;
   g_autoptr (GError) local_error        = NULL;
-  gboolean result                       = FALSE;
   g_autoptr (GListStore) store          = NULL;
   g_autoptr (DexChannel) channel        = NULL;
   g_autoptr (DexFuture) future          = NULL;
   g_autoptr (GHashTable) op_set         = NULL;
   g_autoptr (GHashTable) pending_set    = NULL;
+  g_autoptr (GHashTable) errored        = NULL;
   GHashTableIter iter                   = { 0 };
 
   bz_weak_get_or_return_reject (self, data->self);
@@ -740,9 +758,20 @@ transaction_fiber (QueuedScheduleData *data)
       bz_transaction_error_out_task (transaction, payload, "Cancelled");
     }
 
-  result = dex_await (g_steal_pointer (&future), &local_error);
-  if (!result)
+  errored = dex_await_boxed (g_steal_pointer (&future), &local_error);
+  if (local_error != NULL)
     return dex_future_new_for_error (g_steal_pointer (&local_error));
+
+  if (errored != NULL && g_hash_table_size (errored) > 0)
+    {
+      GHashTableIter  errored_iter = { 0 };
+      gpointer        key          = NULL;
+      gpointer        val          = NULL;
+
+      g_hash_table_iter_init (&errored_iter, errored);
+      g_hash_table_iter_next (&errored_iter, &key, &val);
+      return dex_future_new_for_error (g_error_copy ((GError *) val));
+    }
 
   return dex_future_new_true ();
 }
@@ -771,9 +800,9 @@ transaction_finally (DexFuture          *future,
       transaction,
       "status", status,
       "progress", 1.0,
-      "finished", TRUE,
       "success", value != NULL,
       "error", local_error != NULL ? local_error->message : NULL,
+      "finished", TRUE,
       NULL);
 
   self->current_progress = 1.0;

@@ -74,6 +74,7 @@ typedef struct
   gint     hold;
   gboolean installed;
   char    *installed_version;
+  gboolean reinstallable;
   gboolean searchable;
 
   guint             kinds;
@@ -141,6 +142,7 @@ enum
   PROP_HOLDING,
   PROP_INSTALLED,
   PROP_INSTALLED_VERSION,
+  PROP_REINSTALLABLE,
   PROP_SEARCHABLE,
   PROP_KINDS,
   PROP_ADDONS,
@@ -272,6 +274,9 @@ bz_entry_get_property (GObject    *object,
       break;
     case PROP_INSTALLED_VERSION:
       g_value_set_string (value, priv->installed_version);
+      break;
+    case PROP_REINSTALLABLE:
+      g_value_set_boolean (value, priv->reinstallable);
       break;
     case PROP_SEARCHABLE:
       g_value_set_boolean (value, priv->searchable);
@@ -458,6 +463,9 @@ bz_entry_set_property (GObject      *object,
     case PROP_INSTALLED_VERSION:
       g_clear_pointer (&priv->installed_version, g_free);
       priv->installed_version = g_value_dup_string (value);
+      break;
+    case PROP_REINSTALLABLE:
+      priv->reinstallable = g_value_get_boolean (value);
       break;
     case PROP_SEARCHABLE:
       priv->searchable = g_value_get_boolean (value);
@@ -691,6 +699,12 @@ bz_entry_class_init (BzEntryClass *klass)
       g_param_spec_string (
           "installed-version",
           NULL, NULL, NULL,
+          G_PARAM_READWRITE);
+
+  props[PROP_REINSTALLABLE] =
+      g_param_spec_boolean (
+          "reinstallable",
+          NULL, NULL, TRUE,
           G_PARAM_READWRITE);
 
   props[PROP_SEARCHABLE] =
@@ -1050,6 +1064,7 @@ bz_entry_init (BzEntry *self)
   BzEntryPrivate *priv = bz_entry_get_instance_private (self);
 
   priv->hold            = 0;
+  priv->reinstallable   = TRUE;
   priv->searchable      = TRUE;
   priv->favorites_count = -1;
 }
@@ -1065,6 +1080,7 @@ bz_entry_real_serialize (BzSerializable  *serializable,
   if (priv->installed_version != NULL)
     g_variant_builder_add (builder, "{sv}", "installed-version", g_variant_new_string (priv->installed_version));
   g_variant_builder_add (builder, "{sv}", "kinds", g_variant_new_uint32 (priv->kinds));
+  g_variant_builder_add (builder, "{sv}", "reinstallable", g_variant_new_boolean (priv->reinstallable));
   g_variant_builder_add (builder, "{sv}", "searchable", g_variant_new_boolean (priv->searchable));
   if (priv->addons != NULL)
     {
@@ -1412,6 +1428,8 @@ bz_entry_real_deserialize (BzSerializable *serializable,
         priv->installed_version = g_variant_dup_string (value, NULL);
       else if (g_strcmp0 (key, "kinds") == 0)
         priv->kinds = g_variant_get_uint32 (value);
+      else if (g_strcmp0 (key, "reinstallable") == 0)
+        priv->reinstallable = g_variant_get_boolean (value);
       else if (g_strcmp0 (key, "searchable") == 0)
         priv->searchable = g_variant_get_boolean (value);
       else if (g_strcmp0 (key, "addons") == 0)
@@ -1806,6 +1824,17 @@ bz_entry_is_of_kinds (BzEntry *self,
   priv = bz_entry_get_instance_private (self);
 
   return (priv->kinds & kinds) == kinds;
+}
+
+gboolean
+bz_entry_is_reinstallable (BzEntry *self)
+{
+  BzEntryPrivate *priv = NULL;
+
+  g_return_val_if_fail (BZ_IS_ENTRY (self), TRUE);
+  priv = bz_entry_get_instance_private (self);
+
+  return priv->reinstallable;
 }
 
 gboolean
@@ -2499,13 +2528,9 @@ query_flathub_fiber (QueryFlathubData *data)
         g_autoptr (GListStore) store = NULL;
 
         if (!JSON_NODE_HOLDS_OBJECT (node))
-          {
-            g_debug ("No data for property %s for %s from flathub",
-                     props[prop]->name, id);
-            return dex_future_new_for_error (
-                g_error_new (G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-                             "Unexpected JSON response format"));
-          }
+          return dex_future_new_for_error (
+              g_error_new (G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                           "Unexpected JSON response format"));
 
         root    = json_node_get_object (node);
         per_day = json_object_get_object_member (root, "installs_per_day");
@@ -2527,6 +2552,11 @@ query_flathub_fiber (QueryFlathubData *data)
         JsonObject *per_country      = NULL;
         g_autoptr (GListStore) store = NULL;
 
+        if (!JSON_NODE_HOLDS_OBJECT (node))
+          return dex_future_new_for_error (
+              g_error_new (G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                           "Unexpected JSON response format"));
+
         per_country = json_object_get_object_member (
             json_node_get_object (node),
             "installs_per_country");
@@ -2546,6 +2576,9 @@ query_flathub_fiber (QueryFlathubData *data)
       {
         int recent_downloads = 0;
 
+        if (!JSON_NODE_HOLDS_OBJECT (node))
+          return dex_future_new_for_int (0);
+
         if (json_object_has_member (json_node_get_object (node), "installs_last_month"))
           recent_downloads = json_object_get_int_member (json_node_get_object (node), "installs_last_month");
 
@@ -2555,6 +2588,9 @@ query_flathub_fiber (QueryFlathubData *data)
     case PROP_TOTAL_DOWNLOADS:
       {
         int total_downloads = 0;
+
+        if (!JSON_NODE_HOLDS_OBJECT (node))
+          return dex_future_new_for_int (0);
 
         if (json_object_has_member (json_node_get_object (node), "installs_total"))
           total_downloads = json_object_get_int_member (json_node_get_object (node), "installs_total");
