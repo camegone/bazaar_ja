@@ -1289,6 +1289,9 @@ enumerate_disk_entries_fiber (GWeakRef *wr)
   gtk_filter_changed (GTK_FILTER (self->group_filter), GTK_FILTER_CHANGE_LESS_STRICT);
   gtk_filter_changed (GTK_FILTER (self->appid_filter), GTK_FILTER_CHANGE_LESS_STRICT);
 
+  fiber_check_for_updates (self);
+  finish_with_background_task_label (self);
+
   return dex_future_new_for_boolean (has_flathub_entry);
 }
 
