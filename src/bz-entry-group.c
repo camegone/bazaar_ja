@@ -1258,7 +1258,7 @@ bz_entry_group_dup_all_into_store (BzEntryGroup *self)
 {
   g_return_val_if_fail (BZ_IS_ENTRY_GROUP (self), NULL);
 
-  /* _must_ be the main scheduler since invokations
+  /* _must_ be the main scheduler since invocations
    * of BzApplicationMapFactory functions expect this
    */
   return dex_scheduler_spawn (
