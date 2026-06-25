@@ -1,5 +1,9 @@
 # All files
-* @kolunmi @AlexanderVanhee
+* @kolunmi
+
+po/ @AlexanderVanhee
+docs/ @AlexanderVanhee
+screenshots/ @AlexanderVanhee
 
 .github/workflows/ @renner0e @tulilirockz
 build-aux/flatpak/ @renner0e @tulilirockz
