@@ -103,6 +103,15 @@ bz_search_bar_grab_focus (GtkWidget *widget)
   return gtk_widget_grab_focus (GTK_WIDGET (self->search_text));
 }
 
+static gboolean
+bz_search_bar_focus (GtkWidget *widget,
+                     GtkDirectionType direction)
+{
+  BzSearchBar *self = BZ_SEARCH_BAR (widget);
+
+  return gtk_widget_child_focus (GTK_WIDGET (self->search_text), direction);
+}
+
 static void
 end_widget_focus_enter_cb (BzSearchBar *self)
 {
@@ -214,6 +223,7 @@ bz_search_bar_class_init (BzSearchBarClass *klass)
   object_class->set_property = bz_search_bar_set_property;
 
   widget_class->grab_focus = bz_search_bar_grab_focus;
+  widget_class->focus = bz_search_bar_focus;
 
   properties[PROP_BUSY] =
       g_param_spec_boolean ("busy", NULL, NULL, FALSE,
