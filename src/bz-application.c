@@ -980,9 +980,9 @@ init_fiber (GWeakRef *wr)
   g_autofree char *root_cache_dir       = NULL;
   g_autoptr (GFile) root_cache_dir_file = NULL;
   g_autoptr (GListModel) repos          = NULL;
-  gboolean         has_flathub          = FALSE;
-  gboolean         cache_has_flathub    = FALSE;
-  gboolean         result               = FALSE;
+  gboolean has_flathub                  = FALSE;
+  gboolean cache_has_flathub            = FALSE;
+  gboolean result                       = FALSE;
   g_autoptr (BzAuthState) auth_state    = NULL;
   g_autofree char *flathub_cache        = NULL;
   g_autoptr (GFile) flathub_cache_file  = NULL;
@@ -1063,8 +1063,8 @@ init_fiber (GWeakRef *wr)
 
   root_cache_dir      = bz_dup_root_cache_dir ();
   root_cache_dir_file = g_file_new_for_path (root_cache_dir);
-  cache_version_path = g_build_filename (root_cache_dir, "cache-version", NULL);
-  cache_version_file = g_file_new_for_path (cache_version_path);
+  cache_version_path  = g_build_filename (root_cache_dir, "cache-version", NULL);
+  cache_version_file  = g_file_new_for_path (cache_version_path);
 
   if (dex_await (dex_file_query_exists (root_cache_dir_file), NULL))
     {
@@ -2213,9 +2213,9 @@ init_fiber_finally (DexFuture *future,
       bz_malcontent_service_start (self->malcontent);
 
       g_object_bind_property (
-        bz_state_info_get_auth_state (self->state), "authenticated",
-        g_action_map_lookup_action (G_ACTION_MAP (self), "flathub-login"), "enabled",
-        G_BINDING_SYNC_CREATE | G_BINDING_INVERT_BOOLEAN);
+          bz_state_info_get_auth_state (self->state), "authenticated",
+          g_action_map_lookup_action (G_ACTION_MAP (self), "flathub-login"), "enabled",
+          G_BINDING_SYNC_CREATE | G_BINDING_INVERT_BOOLEAN);
     }
   else
     {
@@ -3169,8 +3169,8 @@ init_service_struct (BzApplication *self,
   g_autoptr (GFile) config_file   = NULL;
   g_autoptr (GBytes) config_bytes = NULL;
 #endif
-  GtkCustomFilter *filter            = NULL;
-  GNetworkMonitor *network           = NULL;
+  GtkCustomFilter *filter  = NULL;
+  GNetworkMonitor *network = NULL;
 
   g_type_ensure (BZ_TYPE_INTERNAL_CONFIG);
   internal_config_bytes = g_resources_lookup_data (
@@ -3309,9 +3309,9 @@ init_service_struct (BzApplication *self,
 #ifdef DEVELOPMENT_BUILD
   if (g_list_model_get_n_items (G_LIST_MODEL (curated_configs)) == 0)
     {
-      g_autofree char *dest_path  = NULL;
-      g_autoptr (GFile) src       = NULL;
-      g_autoptr (GFile) dest      = NULL;
+      g_autofree char *dest_path = NULL;
+      g_autoptr (GFile) src      = NULL;
+      g_autoptr (GFile) dest     = NULL;
 
       dest_path = g_build_filename (g_get_user_data_dir (), "example.yaml", NULL);
       src       = g_file_new_for_path (DEVELOPMENT_EXAMPLE_YAML);
