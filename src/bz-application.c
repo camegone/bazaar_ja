@@ -1140,7 +1140,7 @@ init_fiber (GWeakRef *wr)
       g_autofree char *response = NULL;
       AdwDialog       *alert    = NULL;
 
-      dex_await (DEX_FUTURE (self->first_window_opened), NULL);
+      dex_await (dex_ref (DEX_FUTURE (self->first_window_opened)), NULL);
 
       window = gtk_application_get_active_window (GTK_APPLICATION (self));
       if (window == NULL)
