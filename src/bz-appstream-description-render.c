@@ -107,6 +107,10 @@ on_motion (GtkEventControllerMotion *controller,
            GtkTextView              *text_view);
 
 static void
+text_focus_cb (GtkTextView                  *text_view,
+               GParamSpec                   *pspec,
+               BzAppstreamDescriptionRender *self);
+static void
 bz_appstream_description_render_dispose (GObject *object)
 {
   BzAppstreamDescriptionRender *self = BZ_APPSTREAM_DESCRIPTION_RENDER (object);
@@ -172,6 +176,7 @@ bz_appstream_description_render_class_init (BzAppstreamDescriptionRenderClass *k
 
   gtk_widget_class_set_template_from_resource (widget_class, "/io/github/kolunmi/Bazaar/bz-appstream-description-render.ui");
   gtk_widget_class_bind_template_child (widget_class, BzAppstreamDescriptionRender, text_view);
+  gtk_widget_class_bind_template_callback (widget_class, text_focus_cb);
 }
 
 static void
@@ -292,6 +297,36 @@ on_motion (GtkEventControllerMotion *controller,
     gtk_widget_set_cursor_from_name (GTK_WIDGET (text_view), "pointer");
   else
     gtk_widget_set_cursor (GTK_WIDGET (text_view), NULL);
+}
+
+static void
+text_focus_cb (GtkTextView                  *text_view,
+               GParamSpec                   *pspec,
+               BzAppstreamDescriptionRender *self)
+{
+  GtkTextBuffer *buffer = NULL;
+  GtkTextIter    start  = { 0 };
+  GtkTextIter    end    = { 0 };
+
+  buffer = gtk_text_view_get_buffer (self->text_view);
+
+  gtk_text_buffer_get_bounds (buffer, &start, &end);
+
+  if (gtk_widget_has_focus (GTK_WIDGET (text_view)))
+    {
+      g_autofree char *full_text = NULL;
+
+      full_text = gtk_text_buffer_get_text (buffer, &start, &end, FALSE);
+
+      if (full_text != NULL && *full_text != '\0')
+        gtk_accessible_update_property (GTK_ACCESSIBLE (text_view),
+                                        GTK_ACCESSIBLE_PROPERTY_LABEL, full_text,
+                                        -1);
+
+      gtk_text_buffer_select_range (buffer, &start, &end);
+    }
+  else
+    gtk_text_buffer_place_cursor (buffer, &start);
 }
 
 BzAppstreamDescriptionRender *

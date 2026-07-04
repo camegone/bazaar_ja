@@ -196,8 +196,8 @@ pick_license_warning (gpointer object,
                       gboolean value)
 {
   return value
-             ? g_strdup (_ ("This application has a FLOSS license, meaning the source code can be audited for safety."))
-             : g_strdup (_ ("This application has a proprietary license, meaning the source code is developed privately and cannot be audited by an independent third party."));
+             ? g_strdup (_ ("This app has a FLOSS license, meaning the source code can be audited for safety."))
+             : g_strdup (_ ("This app has a proprietary license, meaning the source code is developed privately and cannot be audited by an independent third party."));
 }
 
 static char *
@@ -433,37 +433,6 @@ dl_stats_cb (BzFullView *self,
 
   adw_dialog_present (dialog, GTK_WIDGET (self));
   bz_stats_dialog_animate_open (BZ_STATS_DIALOG (bin));
-}
-
-static void
-screenshot_clicked_cb (BzFullView            *self,
-                       guint                  index,
-                       BzScreenshotsCarousel *carousel)
-{
-  GListModel        *screenshots = NULL;
-  GListModel        *captions    = NULL;
-  AdwNavigationPage *page        = NULL;
-  GtkWidget         *nav_view    = NULL;
-  BzEntry           *entry       = NULL;
-
-  screenshots = bz_screenshots_carousel_get_model (carousel);
-  if (screenshots == NULL)
-    return;
-
-  if (self->ui_entry != NULL)
-    {
-      entry = bz_result_get_object (self->ui_entry);
-      if (entry != NULL)
-        g_object_get (entry, "screenshot-captions", &captions, NULL);
-    }
-
-  page = bz_screenshot_page_new (screenshots, captions, index);
-
-  g_clear_object (&captions);
-
-  nav_view = gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_NAVIGATION_VIEW);
-  if (nav_view != NULL)
-    adw_navigation_view_push (ADW_NAVIGATION_VIEW (nav_view), page);
 }
 
 static void
@@ -801,7 +770,6 @@ bz_full_view_class_init (BzFullViewClass *klass)
   gtk_widget_class_bind_template_callback (widget_class, open_url_cb);
   gtk_widget_class_bind_template_callback (widget_class, license_cb);
   gtk_widget_class_bind_template_callback (widget_class, dl_stats_cb);
-  gtk_widget_class_bind_template_callback (widget_class, screenshot_clicked_cb);
   gtk_widget_class_bind_template_callback (widget_class, size_cb);
   gtk_widget_class_bind_template_callback (widget_class, formfactor_cb);
   gtk_widget_class_bind_template_callback (widget_class, safety_cb);
@@ -854,6 +822,8 @@ on_ui_entry_resolved (DexFuture *future,
       if (BZ_IS_FLATPAK_ENTRY (ui_entry))
         self->runtime = bz_flatpak_entry_dup_runtime_result (BZ_FLATPAK_ENTRY (ui_entry));
     }
+
+  adw_view_stack_set_visible_child_name (self->stack, "content");
 
   return dex_future_new_for_boolean (TRUE);
 }
@@ -912,6 +882,8 @@ bz_full_view_set_entry_group (BzFullView   *self,
             {
               g_autoptr (DexFuture) ui_future = NULL;
 
+              adw_view_stack_set_visible_child_name (self->stack, "loading");
+
               ui_future = bz_result_dup_future (self->ui_entry);
               ui_future = dex_future_then (
                   ui_future,
@@ -921,8 +893,6 @@ bz_full_view_set_entry_group (BzFullView   *self,
               self->ui_future = g_steal_pointer (&ui_future);
             }
         }
-
-      adw_view_stack_set_visible_child_name (self->stack, "content");
     }
   else
     adw_view_stack_set_visible_child_name (self->stack, "empty");

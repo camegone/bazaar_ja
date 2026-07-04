@@ -14,12 +14,12 @@
     <key name="show-only-flathub" type="b">
       <default>false</default>
       <summary>Show Only Flathub Content</summary>
-      <description>Hide applications which do not originate from Flathub</description>
+      <description>Hide apps which do not originate from Flathub</description>
     </key>
     <key name="show-only-verified" type="b">
       <default>false</default>
       <summary>Show Only Verified Content</summary>
-      <description>Hide applications which are not verified on Flathub</description>
+      <description>Hide apps which are not verified on Flathub</description>
     </key>
     <key name="global-progress-bar-theme" type="s">
       <choices>
@@ -64,6 +64,11 @@
       <default>true</default>
       <summary>Show Permission Warning Banner</summary>
       <description>Show a warning banner on the permissions page</description>
+    </key>
+    <key name="check-for-ubuntu" type="b">
+      <default>true</default>
+      <summary>Check For Ubuntu</summary>
+      <description>Whether to check for and warn about Ubuntu's broken apparmor permissions on startup</description>
     </key>
   </schema>
 </schemalist>

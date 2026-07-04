@@ -12,6 +12,7 @@
     <file preprocess="xml-stripblanks">blocklist-schema.xml</file>
     <file preprocess="xml-stripblanks">curated-config-schema.xml</file>
     <file preprocess="xml-stripblanks">pride-flag-config-schema.xml</file>
+    <file preprocess="xml-stripblanks">article-list-schema.xml</file>
     <file>release-notes.xml</file>
 
     <file>countries.gvariant</file>
@@ -24,10 +25,12 @@
     <file preprocess="xml-stripblanks">bz-app-tile.ui</file>
     <file preprocess="xml-stripblanks">bz-apps-page.ui</file>
     <file preprocess="xml-stripblanks">bz-appstream-description-render.ui</file>
+    <file preprocess="xml-stripblanks">bz-article.ui</file>
+    <file preprocess="xml-stripblanks">bz-article-tile.ui</file>
+    <file preprocess="xml-stripblanks">bz-banner-view.ui</file>
     <file preprocess="xml-stripblanks">bz-bundle-install-dialog.ui</file>
     <file preprocess="xml-stripblanks">bz-category-tile.ui</file>
     <file preprocess="xml-stripblanks">bz-context-tile.ui</file>
-    <file preprocess="xml-stripblanks">bz-curated-app-tile.ui</file>
     <file preprocess="xml-stripblanks">bz-curated-view.ui</file>
     <file preprocess="xml-stripblanks">bz-decorated-screenshot.ui</file>
     <file preprocess="xml-stripblanks">bz-developer-badge.ui</file>
@@ -55,11 +58,11 @@
     <file preprocess="xml-stripblanks">bz-releases-dialog.ui</file>
     <file preprocess="xml-stripblanks">bz-releases-list.ui</file>
     <file preprocess="xml-stripblanks">bz-rich-app-tile.ui</file>
-    <file preprocess="xml-stripblanks">bz-row-view.ui</file>
     <file preprocess="xml-stripblanks">bz-safety-dialog.ui</file>
     <file preprocess="xml-stripblanks">bz-screenshot-page.ui</file>
     <file preprocess="xml-stripblanks">bz-screenshots-carousel.ui</file>
     <file preprocess="xml-stripblanks">bz-search-filter-popover.ui</file>
+    <file preprocess="xml-stripblanks">bz-search-bar.ui</file>
     <file preprocess="xml-stripblanks">bz-search-page.ui</file>
     <file preprocess="xml-stripblanks">bz-section-view.ui</file>
     <file preprocess="xml-stripblanks">bz-stats-dialog.ui</file>
@@ -98,6 +101,7 @@
     <file preprocess="xml-stripblanks">icons/scalable/actions/flatpak-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/flathub-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/folder-download-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/gamepad-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/globe-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/go-previous-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/graph2-symbolic.svg</file>
@@ -134,6 +138,7 @@
     <file preprocess="xml-stripblanks">icons/scalable/actions/sliders-horizontal-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/smartphone2-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/software-update-available-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/star-outline-rounded-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/square-filled-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/thumbs-up-outline-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/timer-sand-symbolic.svg</file>
@@ -142,6 +147,7 @@
     <file preprocess="xml-stripblanks">icons/scalable/actions/verified-checkmark-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/view-more-horizontal-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/view-more-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">icons/scalable/actions/video-reel2-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/zoom-minus-symbolic.svg</file>
     <file preprocess="xml-stripblanks">icons/scalable/actions/zoom-plus-symbolic.svg</file>
 

@@ -41,6 +41,8 @@ struct _BgeMarkdownRender
 
   char    *markdown;
   gboolean dark;
+  gboolean wrap_tables;
+  int      spacing;
 
   GtkWidget *box;
   GPtrArray *box_children;
@@ -55,6 +57,8 @@ enum
 
   PROP_MARKDOWN,
   PROP_DARK,
+  PROP_WRAP_TABLES,
+  PROP_SPACING,
 
   LAST_PROP
 };
@@ -79,11 +83,27 @@ typedef struct
   char              *beginning;
   GString           *markup;
   GArray            *block_stack;
+  GPtrArray         *container_stack;
   int                indent;
   int                list_index;
   MD_CHAR            list_prefix;
   GPtrArray         *source_views;
+  GString           *alt_text;
+  gboolean           in_image;
+  GtkWidget         *grid;
+  guint              grid_rows;
+  guint              grid_columns;
+  guint              grid_row_idx;
+  guint              grid_column_idx;
 } ParseCtx;
+
+static GtkBox *
+current_container (ParseCtx *ctx)
+{
+  if (ctx->container_stack->len > 0)
+    return g_ptr_array_index (ctx->container_stack, ctx->container_stack->len - 1);
+  return ctx->box;
+}
 
 static int
 enter_block (MD_BLOCKTYPE type,
@@ -112,9 +132,11 @@ text (MD_TEXTTYPE    type,
       void          *user_data);
 
 static const MD_PARSER parser = {
-  .flags       = MD_FLAG_COLLAPSEWHITESPACE |
-                 MD_FLAG_NOHTMLBLOCKS |
-                 MD_FLAG_NOHTMLSPANS,
+  .flags = MD_FLAG_COLLAPSEWHITESPACE |
+           MD_FLAG_NOHTMLBLOCKS |
+           MD_FLAG_NOHTMLSPANS |
+           MD_FLAG_STRIKETHROUGH |
+           MD_FLAG_TABLES,
   .enter_block = enter_block,
   .leave_block = leave_block,
   .enter_span  = enter_span,
@@ -160,6 +182,12 @@ bge_markdown_render_get_property (GObject    *object,
     case PROP_DARK:
       g_value_set_boolean (value, bge_markdown_render_get_dark (self));
       break;
+    case PROP_WRAP_TABLES:
+      g_value_set_boolean (value, bge_markdown_render_get_wrap_tables (self));
+      break;
+    case PROP_SPACING:
+      g_value_set_int (value, bge_markdown_render_get_spacing (self));
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
     }
@@ -180,6 +208,12 @@ bge_markdown_render_set_property (GObject      *object,
       break;
     case PROP_DARK:
       bge_markdown_render_set_dark (self, g_value_get_boolean (value));
+      break;
+    case PROP_WRAP_TABLES:
+      bge_markdown_render_set_wrap_tables (self, g_value_get_boolean (value));
+      break;
+    case PROP_SPACING:
+      bge_markdown_render_set_spacing (self, g_value_get_int (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -257,6 +291,29 @@ bge_markdown_render_class_init (BgeMarkdownRenderClass *klass)
           NULL, NULL, FALSE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_EXPLICIT_NOTIFY);
 
+  /**
+   * BgeMarkdownRender:wrap-tables:
+   *
+   * Whether if table elements should scroll horizontally or wrap.
+   */
+  props[PROP_WRAP_TABLES] =
+      g_param_spec_boolean (
+          "wrap-tables",
+          NULL, NULL, TRUE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_EXPLICIT_NOTIFY);
+
+  /**
+   * BgeMarkdownRender:spacing:
+   *
+   * Vertical spacing between rendered block-level elements, in pixels.
+   */
+  props[PROP_SPACING] =
+      g_param_spec_int (
+          "spacing",
+          NULL, NULL,
+          0, G_MAXINT, 7,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_EXPLICIT_NOTIFY);
+
   g_object_class_install_properties (object_class, LAST_PROP, props);
 
   /**
@@ -297,7 +354,10 @@ bge_markdown_render_class_init (BgeMarkdownRenderClass *klass)
 static void
 bge_markdown_render_init (BgeMarkdownRender *self)
 {
-  self->box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 7);
+  self->spacing     = 7;
+  self->wrap_tables = TRUE;
+
+  self->box = gtk_box_new (GTK_ORIENTATION_VERTICAL, self->spacing);
   gtk_widget_set_parent (self->box, GTK_WIDGET (self));
 
   self->box_children = g_ptr_array_new ();
@@ -392,6 +452,82 @@ bge_markdown_render_set_dark (BgeMarkdownRender *self,
   g_object_notify_by_pspec (G_OBJECT (self), props[PROP_DARK]);
 }
 
+/**
+ * bge_markdown_render_get_wrap_tables:
+ * @self: a `BgeMarkdownRender`
+ *
+ * Gets [property@Bge.MarkdownRender:wrap-tables].
+ *
+ * Returns: the value of the property
+ */
+gboolean
+bge_markdown_render_get_wrap_tables (BgeMarkdownRender *self)
+{
+  g_return_val_if_fail (BGE_IS_MARKDOWN_RENDER (self), FALSE);
+  return self->wrap_tables;
+}
+
+/**
+ * bge_markdown_render_set_wrap_tables:
+ * @self: a `BgeMarkdownRender`
+ * @wrap_tables: a boolean
+ *
+ * Sets [property@Bge.MarkdownRender:wrap-tables].
+ */
+void
+bge_markdown_render_set_wrap_tables (BgeMarkdownRender *self,
+                                     gboolean           wrap_tables)
+{
+  g_return_if_fail (BGE_IS_MARKDOWN_RENDER (self));
+
+  wrap_tables = !!wrap_tables;
+  if (self->wrap_tables == wrap_tables)
+    return;
+
+  self->wrap_tables = wrap_tables;
+  regenerate (self);
+
+  g_object_notify_by_pspec (G_OBJECT (self), props[PROP_WRAP_TABLES]);
+}
+
+/**
+ * bge_markdown_render_get_spacing:
+ * @self: a `BgeMarkdownRender`
+ *
+ * Gets [property@Bge.MarkdownRender:spacing].
+ *
+ * Returns: the value of the property
+ */
+int
+bge_markdown_render_get_spacing (BgeMarkdownRender *self)
+{
+  g_return_val_if_fail (BGE_IS_MARKDOWN_RENDER (self), 0);
+  return self->spacing;
+}
+
+/**
+ * bge_markdown_render_set_spacing:
+ * @self: a `BgeMarkdownRender`
+ * @spacing: spacing in pixels
+ *
+ * Sets [property@Bge.MarkdownRender:spacing].
+ */
+void
+bge_markdown_render_set_spacing (BgeMarkdownRender *self,
+                                 int                spacing)
+{
+  g_return_if_fail (BGE_IS_MARKDOWN_RENDER (self));
+  g_return_if_fail (spacing >= 0);
+
+  if (spacing == self->spacing)
+    return;
+
+  self->spacing = spacing;
+  gtk_box_set_spacing (GTK_BOX (self->box), spacing);
+
+  g_object_notify_by_pspec (G_OBJECT (self), props[PROP_SPACING]);
+}
+
 static void
 regenerate (BgeMarkdownRender *self)
 {
@@ -411,16 +547,17 @@ regenerate (BgeMarkdownRender *self)
   if (self->markdown == NULL)
     return;
 
-  ctx.self         = self;
-  ctx.box          = GTK_BOX (self->box);
-  ctx.box_children = self->box_children;
-  ctx.beginning    = self->markdown;
-  ctx.markup       = NULL;
-  ctx.block_stack  = g_array_new (FALSE, TRUE, sizeof (int));
-  ctx.indent       = 0;
-  ctx.list_index   = 0;
-  ctx.list_prefix  = '\0';
-  ctx.source_views = self->source_views;
+  ctx.self            = self;
+  ctx.box             = GTK_BOX (self->box);
+  ctx.box_children    = self->box_children;
+  ctx.beginning       = self->markdown;
+  ctx.markup          = NULL;
+  ctx.block_stack     = g_array_new (FALSE, TRUE, sizeof (int));
+  ctx.indent          = 0;
+  ctx.list_index      = 0;
+  ctx.list_prefix     = '\0';
+  ctx.source_views    = self->source_views;
+  ctx.container_stack = g_ptr_array_new ();
 
   iresult = md_parse (
       self->markdown,
@@ -430,7 +567,12 @@ regenerate (BgeMarkdownRender *self)
 
   if (ctx.markup != NULL)
     g_string_free (ctx.markup, TRUE);
+  if (ctx.alt_text != NULL)
+    g_string_free (ctx.alt_text, TRUE);
+  if (ctx.grid != NULL)
+    g_object_unref (ctx.grid);
   g_array_unref (ctx.block_stack);
+  g_ptr_array_unref (ctx.container_stack);
 
   if (iresult != 0)
     {
@@ -448,7 +590,10 @@ enter_block (MD_BLOCKTYPE type,
 
   if (ctx->markup != NULL)
     {
-      terminate_block (type, detail, user_data);
+      int current_type = 0;
+
+      current_type = g_array_index (ctx->block_stack, int, ctx->block_stack->len - 1);
+      terminate_block (current_type, NULL, user_data);
       g_array_index (ctx->block_stack, int, ctx->block_stack->len - 1) = -1;
     }
 
@@ -468,6 +613,62 @@ enter_block (MD_BLOCKTYPE type,
       ctx->list_index  = 0;
       ctx->list_prefix = ol_detail->mark_delimiter;
     }
+  else if (type == MD_BLOCK_LI)
+    {
+      GtkWidget *prefix      = NULL;
+      GtkWidget *row         = NULL;
+      GtkWidget *content_box = NULL;
+      int        parent      = -1;
+
+      if (ctx->block_stack->len > 0)
+        parent = g_array_index (ctx->block_stack, int, ctx->block_stack->len - 1);
+
+      if (parent == MD_BLOCK_OL)
+        {
+          g_autofree char *prefix_text = NULL;
+
+          prefix_text = g_strdup_printf ("%d%c", ctx->list_index, ctx->list_prefix);
+          prefix      = gtk_label_new (prefix_text);
+          gtk_widget_add_css_class (prefix, "caption");
+        }
+      else
+        {
+          prefix = gtk_image_new_from_icon_name ("circle-filled-symbolic");
+          gtk_image_set_pixel_size (GTK_IMAGE (prefix), 6);
+          gtk_widget_set_margin_top (prefix, 6);
+        }
+      gtk_widget_add_css_class (prefix, "dimmed");
+      gtk_widget_set_valign (prefix, GTK_ALIGN_START);
+
+      content_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      gtk_widget_set_hexpand (content_box, TRUE);
+
+      row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+      gtk_widget_set_margin_start (row, 10);
+      gtk_box_append (GTK_BOX (row), prefix);
+      gtk_box_append (GTK_BOX (row), content_box);
+
+      gtk_box_append (current_container (ctx), row);
+      g_ptr_array_add (ctx->box_children, row);
+
+      g_ptr_array_add (ctx->container_stack, content_box);
+
+      ctx->list_index++;
+
+      ctx->markup = g_string_new (NULL);
+    }
+  else if (type == MD_BLOCK_TABLE)
+    {
+      MD_BLOCK_TABLE_DETAIL *table_detail = detail;
+      g_assert (ctx->grid == NULL);
+      ctx->grid = gtk_grid_new ();
+      gtk_widget_add_css_class (ctx->grid, "markdown-table");
+      gtk_widget_set_halign (ctx->grid, GTK_ALIGN_START);
+      ctx->grid_rows       = table_detail->head_row_count + table_detail->body_row_count;
+      ctx->grid_columns    = table_detail->col_count;
+      ctx->grid_row_idx    = 0;
+      ctx->grid_column_idx = 0;
+    }
   else
     ctx->markup = g_string_new (NULL);
 
@@ -484,8 +685,21 @@ leave_block (MD_BLOCKTYPE type,
   ParseCtx *ctx = user_data;
 
   g_assert (ctx->block_stack->len > 0);
-  if (g_array_index (ctx->block_stack, int, ctx->block_stack->len - 1) >= 0)
-    terminate_block (type, detail, user_data);
+
+  if (type == MD_BLOCK_LI)
+    {
+      if (ctx->markup != NULL)
+        terminate_block (type, detail, user_data);
+
+      if (ctx->container_stack->len > 0)
+        g_ptr_array_set_size (ctx->container_stack, ctx->container_stack->len - 1);
+    }
+  else
+    {
+      if (g_array_index (ctx->block_stack, int, ctx->block_stack->len - 1) >= 0)
+        terminate_block (type, detail, user_data);
+    }
+
   g_array_set_size (ctx->block_stack, ctx->block_stack->len - 1);
 
   return 0;
@@ -503,10 +717,10 @@ enter_span (MD_SPANTYPE type,
   switch (type)
     {
     case MD_SPAN_EM:
-      g_string_append (ctx->markup, "<b>");
+      g_string_append (ctx->markup, "<i>");
       break;
     case MD_SPAN_STRONG:
-      g_string_append (ctx->markup, "<big>");
+      g_string_append (ctx->markup, "<b>");
       break;
     case MD_SPAN_A:
       {
@@ -526,9 +740,11 @@ enter_span (MD_SPANTYPE type,
       }
       break;
     case MD_SPAN_IMG:
+      ctx->in_image = TRUE;
+      ctx->alt_text = g_string_new (NULL);
       break;
     case MD_SPAN_CODE:
-      g_string_append (ctx->markup, "<tt>");
+      g_string_append (ctx->markup, "<span font_family=\"monospace\" size=\"small\" background=\"#808080\" bgalpha=\"20%\">");
       break;
     case MD_SPAN_DEL:
       g_string_append (ctx->markup, "<s>");
@@ -560,10 +776,10 @@ leave_span (MD_SPANTYPE type,
   switch (type)
     {
     case MD_SPAN_EM:
-      g_string_append (ctx->markup, "</b>");
+      g_string_append (ctx->markup, "</i>");
       break;
     case MD_SPAN_STRONG:
-      g_string_append (ctx->markup, "</big>");
+      g_string_append (ctx->markup, "</b>");
       break;
     case MD_SPAN_A:
       g_string_append (ctx->markup, "</a>");
@@ -573,6 +789,7 @@ leave_span (MD_SPANTYPE type,
         MD_SPAN_IMG_DETAIL *img_detail = detail;
         g_autofree char    *title      = NULL;
         g_autofree char    *src        = NULL;
+        g_autofree char    *alt        = NULL;
         GtkWidget          *widget     = NULL;
 
         if (img_detail->title.text != NULL)
@@ -580,17 +797,25 @@ leave_span (MD_SPANTYPE type,
         if (img_detail->src.text != NULL)
           src = g_strndup (img_detail->src.text, img_detail->src.size);
 
-        g_signal_emit (ctx->self, signals[SIGNAL_BIND_INLINE_URI], 0, title, src, &widget);
+        if (ctx->alt_text != NULL)
+          {
+            alt           = g_string_free (ctx->alt_text, FALSE);
+            ctx->alt_text = NULL;
+          }
+        ctx->in_image = FALSE;
+
+        g_signal_emit (ctx->self, signals[SIGNAL_BIND_INLINE_URI], 0,
+                       title != NULL ? title : alt, src, &widget);
+
         if (widget != NULL)
           {
-            gtk_widget_set_margin_start (widget, 10 * ctx->indent);
-            gtk_box_append (ctx->box, widget);
+            gtk_box_append (current_container (ctx), widget);
             g_ptr_array_add (ctx->box_children, widget);
           }
       }
       break;
     case MD_SPAN_CODE:
-      g_string_append (ctx->markup, "</tt>");
+      g_string_append (ctx->markup, "</span>");
       break;
     case MD_SPAN_DEL:
       g_string_append (ctx->markup, "</s>");
@@ -620,6 +845,13 @@ text (MD_TEXTTYPE    type,
   int       block = -1;
 
   g_assert (ctx->markup != NULL);
+
+  if (ctx->in_image)
+    {
+      g_string_append_len (ctx->alt_text, buf, size);
+      return 0;
+    }
+
   if (ctx->block_stack->len > 0)
     block = g_array_index (ctx->block_stack, int, ctx->block_stack->len - 1);
 
@@ -655,11 +887,18 @@ terminate_block (MD_BLOCKTYPE type,
   if (ctx->block_stack->len > 1)
     parent = g_array_index (ctx->block_stack, int, ctx->block_stack->len - 2);
 
-  if (ctx->markup != NULL)
+  if (ctx->markup != NULL && ctx->markup->len > 0)
     {
-      if (ctx->markup->len > 0 &&
-          !g_unichar_isgraph (ctx->markup->str[ctx->markup->len - 1]))
-        g_string_truncate (ctx->markup, ctx->markup->len - 1);
+      const char *end  = ctx->markup->str + ctx->markup->len;
+      const char *prev = g_utf8_find_prev_char (ctx->markup->str, end);
+
+      if (prev != NULL)
+        {
+          gunichar last_char = g_utf8_get_char (prev);
+
+          if (!g_unichar_isgraph (last_char))
+            g_string_truncate (ctx->markup, prev - ctx->markup->str);
+        }
     }
 
 #define SET_DEFAULTS(_label_widget)                                            \
@@ -708,65 +947,26 @@ terminate_block (MD_BLOCKTYPE type,
       break;
     case MD_BLOCK_UL:
       {
-        // MD_BLOCK_UL_DETAIL *ul_detail = detail;
-
         if (ctx->markup == NULL)
           ctx->indent--;
       }
       break;
     case MD_BLOCK_OL:
       {
-        // MD_BLOCK_OL_DETAIL *ol_detail = detail;
-
         if (ctx->markup == NULL)
           ctx->indent--;
       }
       break;
     case MD_BLOCK_LI:
       {
-        // MD_BLOCK_LI_DETAIL *li_detail = detail;
-        GtkWidget *prefix = NULL;
-        GtkWidget *label  = NULL;
-
-        g_assert (ctx->markup != NULL);
-        if (ctx->markup->len == 0)
-          break;
-
-        g_assert (parent == MD_BLOCK_UL ||
-                  parent == MD_BLOCK_OL);
-
-        if (parent == MD_BLOCK_OL)
+        if (ctx->markup != NULL && ctx->markup->len > 0)
           {
-            g_autofree char *prefix_text = NULL;
-
-            prefix_text = g_strdup_printf ("%d%c", ctx->list_index, ctx->list_prefix);
-            prefix      = gtk_label_new (prefix_text);
-            gtk_widget_add_css_class (prefix, "caption");
+            GtkWidget *label = gtk_label_new (ctx->markup->str);
+            SET_DEFAULTS (label);
+            gtk_widget_add_css_class (label, "body");
+            gtk_box_append (current_container (ctx), label);
+            g_ptr_array_add (ctx->box_children, label);
           }
-        else
-          {
-            /* TODO:
-
-               `ctx->list_prefix` is '-', '+', '*'
-
-               maybe handle these?
-               */
-
-            prefix = gtk_image_new_from_icon_name ("circle-filled-symbolic");
-            gtk_image_set_pixel_size (GTK_IMAGE (prefix), 6);
-            gtk_widget_set_margin_top (prefix, 6);
-          }
-        gtk_widget_add_css_class (prefix, "dimmed");
-        gtk_widget_set_valign (prefix, GTK_ALIGN_START);
-
-        label = gtk_label_new (ctx->markup->str);
-        SET_DEFAULTS (label);
-
-        child = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-        gtk_box_append (GTK_BOX (child), prefix);
-        gtk_box_append (GTK_BOX (child), label);
-
-        ctx->list_index++;
       }
       break;
 
@@ -844,14 +1044,19 @@ terminate_block (MD_BLOCKTYPE type,
         g_ptr_array_add (ctx->source_views, view);
         gtk_text_view_set_editable (GTK_TEXT_VIEW (view), FALSE);
         gtk_text_view_set_monospace (GTK_TEXT_VIEW (view), TRUE);
+        gtk_text_view_set_left_margin (GTK_TEXT_VIEW (view), 16);
+        gtk_text_view_set_right_margin (GTK_TEXT_VIEW (view), 16);
+        gtk_text_view_set_top_margin (GTK_TEXT_VIEW (view), 12);
+        gtk_text_view_set_bottom_margin (GTK_TEXT_VIEW (view), 12);
         gtk_widget_add_css_class (view, "monospace");
 
         window = gtk_scrolled_window_new ();
         gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (window), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
         gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (window), view);
 
-        child = gtk_frame_new (lang_id);
+        child = gtk_frame_new (NULL);
         gtk_frame_set_child (GTK_FRAME (child), window);
+        gtk_widget_add_css_class (child, "code-block");
       }
       break;
 
@@ -867,15 +1072,69 @@ terminate_block (MD_BLOCKTYPE type,
       }
       break;
 
-    case MD_BLOCK_HTML:
     case MD_BLOCK_TABLE:
+      break;
+
     case MD_BLOCK_THEAD:
     case MD_BLOCK_TBODY:
     case MD_BLOCK_TR:
+      break;
+
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
+      {
+        GtkWidget *label = NULL;
+
+        g_assert (ctx->markup != NULL);
+
+        label = gtk_label_new (ctx->markup->str);
+        SET_DEFAULTS (label);
+        gtk_label_set_wrap (GTK_LABEL (label), ctx->self->wrap_tables);
+
+        if (type == MD_BLOCK_TH)
+          gtk_widget_add_css_class (label, "heading");
+
+        if (ctx->grid_row_idx % 2 == 1)
+          gtk_widget_add_css_class (label, "row-odd");
+
+        gtk_grid_attach (
+            GTK_GRID (ctx->grid),
+            label,
+            ctx->grid_column_idx * 2, ctx->grid_row_idx,
+            1, 1);
+
+        ctx->grid_column_idx++;
+        if (ctx->grid_column_idx >= ctx->grid_columns)
+          {
+            ctx->grid_row_idx++;
+            ctx->grid_column_idx = 0;
+
+            if (ctx->grid_row_idx >= ctx->grid_rows)
+              {
+                GtkWidget *grid = g_steal_pointer (&ctx->grid);
+
+                if (!ctx->self->wrap_tables)
+                  {
+                    GtkWidget *scrolled = NULL;
+                    scrolled            = gtk_scrolled_window_new ();
+
+                    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                                    GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+                    gtk_scrolled_window_set_propagate_natural_height (
+                        GTK_SCROLLED_WINDOW (scrolled), TRUE);
+                    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), grid);
+                    child = scrolled;
+                  }
+                else
+                  child = grid;
+              }
+          }
+      }
+      break;
+
+    case MD_BLOCK_HTML:
     default:
-      g_warning ("Unsupported markdown event (Did you use html/tables?)");
+      g_warning ("Unsupported markdown event (Did you use html?)");
       return 1;
     }
 
@@ -883,8 +1142,7 @@ terminate_block (MD_BLOCKTYPE type,
 
   if (child != NULL)
     {
-      gtk_widget_set_margin_start (child, 10 * ctx->indent);
-      gtk_box_append (ctx->box, child);
+      gtk_box_append (current_container (ctx), child);
       g_ptr_array_add (ctx->box_children, child);
     }
 

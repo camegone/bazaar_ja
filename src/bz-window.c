@@ -37,6 +37,8 @@
 #include "bz-io.h"
 #include "bz-library-page.h"
 #include "bz-progress-bar.h"
+#include "bz-screenshot-page.h"
+#include "bz-search-bar.h"
 #include "bz-search-page.h"
 #include "bz-template-callbacks.h"
 #include "bz-transaction-dialog.h"
@@ -53,6 +55,8 @@ struct _BzWindow
 
   GtkEventController *key_controller;
 
+  BzScreenshotPage *screenshot_page;
+
   gboolean breakpoint_applied;
 
   /* Template widgets */
@@ -63,6 +67,7 @@ struct _BzWindow
   AdwToastOverlay   *toasts;
   AdwViewStack      *main_view_stack;
   GtkStack          *main_stack;
+  GtkOverlay        *window_overlay;
 };
 
 G_DEFINE_FINAL_TYPE (BzWindow, bz_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -350,6 +355,15 @@ action_escape (GtkWidget  *widget,
   BzWindow   *self    = BZ_WINDOW (widget);
   GListModel *stack   = NULL;
   guint       n_pages = 0;
+
+  if (self->screenshot_page != NULL)
+    {
+      if (!bz_screenshot_page_is_closing (self->screenshot_page))
+        {
+          bz_screenshot_page_close (self->screenshot_page);
+          return;
+        }
+    }
 
   stack   = adw_navigation_view_get_navigation_stack (self->navigation_view);
   n_pages = g_list_model_get_n_items (stack);
@@ -688,6 +702,7 @@ bz_window_class_init (BzWindowClass *klass)
 
   g_object_class_install_properties (object_class, LAST_PROP, props);
 
+  g_type_ensure (BZ_TYPE_SEARCH_BAR);
   g_type_ensure (BZ_TYPE_SEARCH_PAGE);
   g_type_ensure (BZ_TYPE_PROGRESS_BAR);
   g_type_ensure (BZ_TYPE_CURATED_VIEW);
@@ -705,6 +720,7 @@ bz_window_class_init (BzWindowClass *klass)
   gtk_widget_class_bind_template_child (widget_class, BzWindow, library_page);
   gtk_widget_class_bind_template_child (widget_class, BzWindow, main_view_stack);
   gtk_widget_class_bind_template_child (widget_class, BzWindow, main_stack);
+  gtk_widget_class_bind_template_child (widget_class, BzWindow, window_overlay);
   gtk_widget_class_bind_template_callback (widget_class, list_length);
   gtk_widget_class_bind_template_callback (widget_class, update_cb);
   gtk_widget_class_bind_template_callback (widget_class, page_toggled_cb);
@@ -749,6 +765,9 @@ key_pressed (BzWindow              *self,
 
   /* Ignore if this is a modifier-shortcut of some sort */
   if (state & ~(GDK_NO_MODIFIER_MASK | GDK_SHIFT_MASK))
+    return FALSE;
+
+  if (self->screenshot_page != NULL)
     return FALSE;
 
   unichar = gdk_keyval_to_unicode (keyval);
@@ -962,12 +981,17 @@ transact_fiber (TransactData *data)
 BzWindow *
 bz_window_new (BzStateInfo *state)
 {
-  BzWindow *window = NULL;
+  BzWindow     *window = NULL;
+  BzMainConfig *config = NULL;
 
   g_return_val_if_fail (BZ_IS_STATE_INFO (state), NULL);
 
   window        = g_object_new (BZ_TYPE_WINDOW, NULL);
   window->state = g_object_ref (state);
+
+  config = bz_state_info_get_main_config (state);
+  if (config != NULL && bz_main_config_get_start_on_curated (config))
+    adw_view_stack_set_visible_child_name (window->main_view_stack, "browse");
 
   g_signal_connect_object (state,
                            "notify::busy",
@@ -1056,6 +1080,23 @@ bz_window_push_page (BzWindow *self, AdwNavigationPage *page)
   g_return_if_fail (ADW_IS_NAVIGATION_PAGE (page));
 
   adw_navigation_view_push (self->navigation_view, page);
+}
+
+void
+bz_window_open_screenshot_page (BzWindow         *self,
+                                BzScreenshotPage *page)
+{
+  g_return_if_fail (BZ_IS_WINDOW (self));
+  g_return_if_fail (BZ_IS_SCREENSHOT_PAGE (page));
+
+  if (self->screenshot_page != NULL)
+    return;
+
+  self->screenshot_page = page;
+  g_signal_connect_swapped (page, "destroy",
+                            G_CALLBACK (g_nullify_pointer),
+                            &self->screenshot_page);
+  gtk_overlay_add_overlay (self->window_overlay, GTK_WIDGET (page));
 }
 
 void

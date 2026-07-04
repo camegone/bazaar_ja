@@ -34,7 +34,7 @@ bz_row_view_new (BzCuratedRow *row);
 
 void
 bz_row_view_set_row (BzRowView    *self,
-                             BzCuratedRow *row);
+                     BzCuratedRow *row);
 
 BzCuratedRow *
 bz_row_view_get_row (BzRowView *self);
