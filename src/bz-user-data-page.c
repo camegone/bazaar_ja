@@ -203,13 +203,13 @@ bz_user_data_page_remove_group (BzUserDataPage *self,
                                 BzEntryGroup   *group)
 {
   guint            n_items, i;
-  const char      *title   = NULL;
+  g_autofree char *title   = NULL;
   g_autofree char *message = NULL;
 
   if (self->model == NULL)
     return;
 
-  title = bz_entry_group_get_title (group);
+  title = g_strdup (bz_entry_group_get_title (group));
 
   n_items = g_list_model_get_n_items (self->model);
   for (i = 0; i < n_items; i++)
@@ -226,7 +226,10 @@ bz_user_data_page_remove_group (BzUserDataPage *self,
   self->toast_count++;
 
   message = self->toast_count > 1
-                ? g_strdup_printf (_ ("Trashed User Data for %u Apps"), self->toast_count)
+                ? g_strdup_printf (ngettext ("Trashed User Data for %u App",
+                                             "Trashed User Data for %u Apps",
+                                             self->toast_count),
+                                   self->toast_count)
                 : g_strdup_printf (_ ("Trashed User Data for %s"), title);
 
   if (self->toast == NULL)

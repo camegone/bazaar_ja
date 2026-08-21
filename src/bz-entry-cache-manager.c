@@ -27,10 +27,10 @@
 #include <malloc.h>
 
 #include "bz-entry-cache-manager.h"
-#include "env.h"
 #include "bz-flatpak-entry.h"
-#include "io.h"
 #include "bz-serializable.h"
+#include "env.h"
+#include "io.h"
 #include "util.h"
 
 /* clang-format off */

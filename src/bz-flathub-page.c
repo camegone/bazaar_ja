@@ -27,6 +27,8 @@
 #include "bz-featured-carousel.h"
 #include "bz-flathub-category-section.h"
 #include "bz-flathub-category.h"
+#include "bz-flathub-curated-section.h"
+#include "bz-flathub-curated-selection.h"
 #include "bz-flathub-page.h"
 #include "bz-section-view.h"
 
@@ -84,10 +86,6 @@ is_null (gpointer object,
 }
 
 static void
-tile_clicked (BzEntryGroup *group,
-              GtkButton    *button);
-
-static void
 show_more_clicked (BzFlathubPage *self,
                    GtkButton     *button,
                    const char    *category_name);
@@ -140,23 +138,29 @@ bz_flathub_page_set_property (GObject      *object,
     }
 }
 
-static void
-bind_widget_cb (BzFlathubPage     *self,
-                BzAppTile         *tile,
-                BzEntryGroup      *group,
-                BzDynamicListView *view)
+static BzFlathubCuratedSelection *
+get_curated_selection_by_slot (gpointer    object,
+                               GListModel *selections,
+                               const char *slot)
 {
-  g_signal_connect_swapped (tile, "clicked", G_CALLBACK (tile_clicked), group);
+  if (selections == NULL)
+    return NULL;
+
+  for (guint i = 0; i < g_list_model_get_n_items (selections); i++)
+    {
+      g_autoptr (BzFlathubCuratedSelection) selection = NULL;
+      const char *selection_slot                      = NULL;
+
+      selection      = g_list_model_get_item (selections, i);
+      selection_slot = bz_flathub_curated_selection_get_slot (selection);
+
+      if (g_strcmp0 (selection_slot, slot) == 0)
+        return g_steal_pointer (&selection);
+    }
+
+  return NULL;
 }
 
-static void
-unbind_widget_cb (BzFlathubPage     *self,
-                  BzAppTile         *tile,
-                  BzEntryGroup      *group,
-                  BzDynamicListView *view)
-{
-  g_signal_handlers_disconnect_by_func (tile, G_CALLBACK (tile_clicked), group);
-}
 
 static void
 show_more_mobile_cb (BzFlathubPage *self,
@@ -214,14 +218,6 @@ open_search_cb (BzFlathubPage *self,
 }
 
 static void
-show_group_action (GtkWidget    *widget,
-                   BzEntryGroup *group)
-{
-  gtk_widget_activate_action (widget, "window.show-group", "s",
-                              bz_entry_group_get_id (group));
-}
-
-static void
 bz_flathub_page_class_init (BzFlathubPageClass *klass)
 {
   GObjectClass   *object_class = G_OBJECT_CLASS (klass);
@@ -253,6 +249,7 @@ bz_flathub_page_class_init (BzFlathubPageClass *klass)
   g_type_ensure (BZ_TYPE_SECTION_VIEW);
   g_type_ensure (BZ_TYPE_FLATHUB_CATEGORY_SECTION);
   g_type_ensure (BZ_TYPE_FLATHUB_CATEGORY);
+  g_type_ensure (BZ_TYPE_FLATHUB_CURATED_SECTION);
   g_type_ensure (BZ_TYPE_DYNAMIC_LIST_VIEW);
   g_type_ensure (BZ_TYPE_APP_TILE);
   g_type_ensure (BZ_TYPE_FEATURED_CAROUSEL);
@@ -261,8 +258,7 @@ bz_flathub_page_class_init (BzFlathubPageClass *klass)
   gtk_widget_class_bind_template_child (widget_class, BzFlathubPage, stack);
   gtk_widget_class_bind_template_callback (widget_class, invert_boolean);
   gtk_widget_class_bind_template_callback (widget_class, is_null);
-  gtk_widget_class_bind_template_callback (widget_class, bind_widget_cb);
-  gtk_widget_class_bind_template_callback (widget_class, unbind_widget_cb);
+  gtk_widget_class_bind_template_callback (widget_class, get_curated_selection_by_slot);
   gtk_widget_class_bind_template_callback (widget_class, get_category_by_name_cb);
   gtk_widget_class_bind_template_callback (widget_class, show_more_mobile_cb);
   gtk_widget_class_bind_template_callback (widget_class, show_more_gaming_cb);
@@ -346,13 +342,6 @@ show_more_clicked (BzFlathubPage *self,
   g_assert (nav_view != NULL);
 
   adw_navigation_view_push (ADW_NAVIGATION_VIEW (nav_view), apps_page);
-}
-
-static void
-tile_clicked (BzEntryGroup *group,
-              GtkButton    *button)
-{
-  show_group_action (GTK_WIDGET (button), group);
 }
 
 static void

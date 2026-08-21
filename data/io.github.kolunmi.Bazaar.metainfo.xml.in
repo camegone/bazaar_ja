@@ -23,8 +23,10 @@
     <control>pointing</control>
     <control>keyboard</control>
     <control>touch</control>
-    <display_length compare="ge">360</display_length>
   </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
 
   <developer id="io.github.kolunmi">
     <name>The Bazaar Contributors</name>
@@ -33,7 +35,7 @@
   <url type="homepage">https://usebazaar.org/</url>
   <url type="vcs-browser">https://github.com/bazaar-org/bazaar</url>
   <url type="bugtracker">https://github.com/bazaar-org/bazaar/issues</url>
-  <url type="translate">https://github.com/bazaar-org/bazaar/tree/master/po</url>
+  <url type="translate">https://l10n.gnome.org/module/bazaar/</url>
   <url type="faq">https://github.com/bazaar-org/bazaar/blob/master/README.md</url>
   <url type="help">https://github.com/bazaar-org/bazaar/discussions</url>
   <url type="donation">https://github.com/sponsors/kolunmi</url>
@@ -56,7 +58,7 @@
     </screenshot>
     <screenshot>
       <image>https://github.com/user-attachments/assets/3de5d9a0-9c5d-461a-964c-7d680cc5f1a2</image>
-      <caption>Exhibit app page</caption>
+      <caption>App page for Exhibit</caption>
     </screenshot>
     <screenshot>
       <image>https://github.com/user-attachments/assets/18424ebc-73a1-41b5-956e-57dcbcb592e6</image>
@@ -73,6 +75,61 @@
   </screenshots>
 
   <releases>
+    <release version="0.9.4" date="2026-08-14">
+      <url type="details">https://github.com/bazaar-org/bazaar/releases/tag/v0.9.4</url>
+      <description translate="no">
+        <p>
+          <em>Changes</em>
+        </p>
+        <ul>
+          <li>Added shortcuts for zoom actions in the screenshot viewer</li>
+          <li>Clicking other app tiles on an app page now creates a new page</li>
+          <li>Fixed keyboard navigation on the "Curated" page</li>
+        </ul>
+        <p>
+          Thanks for reading, and have a great day!
+        </p>
+      </description>
+    </release>
+    <release version="0.9.3" date="2026-08-12">
+      <url type="details">https://github.com/bazaar-org/bazaar/releases/tag/v0.9.3</url>
+      <description translate="no">
+        <p>
+          <em>Changes</em>
+        </p>
+        <ul>
+          <li>Display Flathub's seasonal curated topic sections</li>
+          <li>Many bug fixes related to the new background service introduced in 0.9.2</li>
+        </ul>
+        <p>
+          Thanks for reading, and have a great day!
+        </p>
+      </description>
+    </release>
+    <release version="0.9.2" date="2026-08-03">
+      <url type="details">https://github.com/bazaar-org/bazaar/releases/tag/v0.9.2</url>
+        <description translate="no">
+          <p>
+            <em>New Features</em>
+          </p>
+          <ul>
+            <li>Added an optional auto-update system</li>
+            <li>Greatly reduced memory usage when the app is running in the background</li>
+            <li>Metainfo files can now be opened in Bazaar directly from the file manager</li>
+            <li>Added scrollbars to the screenshot viewer</li>
+          </ul>
+          <p>
+            <em>Bug Fixes</em>
+          </p>
+          <ul>
+            <li>Fixed an issue where EOL rebases were not handled properly</li>
+            <li>Reduced the clunkiness of the "Leftover User Data" page</li>
+          </ul>
+          <p>
+            Thanks for reading, and have a great day!
+          </p>
+        </description>
+    </release>
     <release version="0.9.1" date="2026-07-08">
       <url type="details">https://github.com/bazaar-org/bazaar/releases/tag/v0.9.1</url>
         <description translate="no">

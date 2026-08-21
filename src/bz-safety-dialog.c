@@ -40,6 +40,7 @@ struct _BzSafetyDialog
   BzEntry *entry;
 
   gboolean has_sandbox_escape;
+  gboolean owns_dialog;
 
   AdwAnimation *width_animation;
   AdwAnimation *height_animation;
@@ -48,6 +49,7 @@ struct _BzSafetyDialog
   GtkListBox  *permissions_list;
   AdwCarousel *carousel;
   GtkBox      *global_box;
+  GtkLabel    *arbitrary_description;
 };
 
 G_DEFINE_FINAL_TYPE (BzSafetyDialog, bz_safety_dialog, ADW_TYPE_BIN)
@@ -149,6 +151,9 @@ animate_to_page (BzSafetyDialog *self,
   int        cur_w         = 0;
   int        cur_h         = 0;
 
+  if (!self->owns_dialog)
+    return;
+
   dialog = ADW_DIALOG (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_DIALOG));
   if (dialog == NULL)
     return;
@@ -177,14 +182,7 @@ animate_to_page (BzSafetyDialog *self,
 static void
 on_dialog_map (BzSafetyDialog *self)
 {
-  AdwDialog *dialog        = NULL;
-  int        target_width  = 0;
-  int        target_height = 0;
-  guint      page_index    = self->has_sandbox_escape ? 0 : 1;
-
-  dialog = ADW_DIALOG (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_DIALOG));
-  if (dialog == NULL)
-    return;
+  guint page_index = self->has_sandbox_escape ? 0 : 1;
 
   if (page_index == 1)
     {
@@ -194,9 +192,20 @@ on_dialog_map (BzSafetyDialog *self)
       adw_carousel_scroll_to (self->carousel, page, FALSE);
     }
 
-  get_target_size (self, page_index, &target_width, &target_height);
-  adw_dialog_set_content_width (dialog, target_width);
-  adw_dialog_set_content_height (dialog, target_height);
+  if (self->owns_dialog)
+    {
+      AdwDialog *dialog        = NULL;
+      int        target_width  = 0;
+      int        target_height = 0;
+
+      dialog = ADW_DIALOG (gtk_widget_get_ancestor (GTK_WIDGET (self), ADW_TYPE_DIALOG));
+      if (dialog == NULL)
+        return;
+
+      get_target_size (self, page_index, &target_width, &target_height);
+      adw_dialog_set_content_width (dialog, target_width);
+      adw_dialog_set_content_height (dialog, target_height);
+    }
 }
 
 static void
@@ -206,8 +215,22 @@ next_page (BzSafetyDialog *self,
   GtkWidget *page = NULL;
 
   page = gtk_widget_get_last_child (GTK_WIDGET (self->carousel));
+
+  gtk_accessible_announce (GTK_ACCESSIBLE (self),
+                         bz_lozenge_get_title (self->lozenge),
+                         GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
+
   adw_carousel_scroll_to (self->carousel, page, TRUE);
   animate_to_page (self, 1);
+}
+
+static gboolean
+is_page (gpointer object,
+         gdouble  position,
+         gint     target)
+{
+  return fabs (position - (gdouble) target) < 0.5 ||
+        fabs (position - round (position)) > 0.01;
 }
 
 static void
@@ -241,13 +264,16 @@ bz_safety_dialog_class_init (BzSafetyDialogClass *klass)
   gtk_widget_class_bind_template_child (widget_class, BzSafetyDialog, permissions_list);
   gtk_widget_class_bind_template_child (widget_class, BzSafetyDialog, carousel);
   gtk_widget_class_bind_template_child (widget_class, BzSafetyDialog, global_box);
+  gtk_widget_class_bind_template_child (widget_class, BzSafetyDialog, arbitrary_description);
   gtk_widget_class_bind_template_callback (widget_class, next_page);
+  gtk_widget_class_bind_template_callback (widget_class, is_page);
 }
 
 static void
 bz_safety_dialog_init (BzSafetyDialog *self)
 {
   gtk_widget_init_template (GTK_WIDGET (self));
+  g_signal_connect_swapped (self, "map", G_CALLBACK (on_dialog_map), self);
 }
 
 AdwDialog *
@@ -257,10 +283,14 @@ bz_safety_dialog_new (BzEntry *entry)
   AdwDialog          *dialog        = NULL;
   AdwAnimationTarget *width_target  = NULL;
   AdwAnimationTarget *height_target = NULL;
+  g_autofree char    *description   = NULL;
 
   widget = g_object_new (BZ_TYPE_SAFETY_DIALOG, NULL);
+  widget->owns_dialog = TRUE;
 
   dialog = adw_dialog_new ();
+
+  adw_dialog_set_title (dialog, _ ("Safety"));
   adw_dialog_set_content_height (dialog, 576);
   adw_dialog_set_content_width (dialog, 640);
   adw_dialog_set_child (dialog, GTK_WIDGET (widget));
@@ -272,7 +302,16 @@ bz_safety_dialog_new (BzEntry *entry)
 
   g_object_set (widget, "entry", entry, NULL);
 
-  g_signal_connect_swapped (widget, "map", G_CALLBACK (on_dialog_map), widget);
+  if (widget->has_sandbox_escape)
+    description = g_strdup_printf ("%s. %s",
+                                   _ ("Arbitrary Permissions"),
+                                   gtk_label_get_text (widget->arbitrary_description));
+  else
+    description = g_strdup (bz_lozenge_get_title (widget->lozenge));
+
+  gtk_accessible_update_property (GTK_ACCESSIBLE (dialog),
+                                  GTK_ACCESSIBLE_PROPERTY_DESCRIPTION, description,
+                                  -1);
 
   return dialog;
 }

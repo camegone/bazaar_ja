@@ -3,7 +3,7 @@ xmllint = find_program('xmllint', required: true)
 
 gtk_dep              = dependency('gtk4', version: '>= 4.22.1')
 libadwaita_dep       = dependency('libadwaita-1', version: '>= 1.8')
-libdex_dep           = dependency('libdex-1', version: '>= 1.0.0')
+libdex_dep           = dependency('libdex-1', version: '>= 1.2.beta')
 flatpak_dep          = dependency('flatpak', version: '>= 1.9')
 appstream_dep        = dependency('appstream', version: '>= 1.0')
 xmlb_dep             = dependency('xmlb', version: '>= 0.3.4')
@@ -107,6 +107,7 @@ bz_sources = files(
   'bz-flathub-category-section.c',
   'bz-flathub-category.c',
   'bz-flathub-category.c',
+  'bz-flathub-curated-section.c',
   'bz-flathub-page.c',
   'bz-flathub-state.c',
   'bz-flatpak-entry.c',
@@ -164,6 +165,7 @@ bz_sources = files(
   'bz-yaml-parser.c',
   'bz-zoom.c',
   'context-tile-callbacks.c',
+  'dex-utils.c',
   'env.c',
   'error.c',
   'global-net.c',
@@ -174,7 +176,9 @@ bz_sources = files(
   'search-index-write.c',
   'spdx.c',
   'template-callbacks.c',
+  'transaction-notification.c',
   'update-worker.c',
+  'util.c',
 )
 subdir('progress-bar-designs')
 
@@ -238,6 +242,7 @@ gobject_specs = files(
   'bz-exponential-function.txt',
   'bz-finished-search-query.txt',
   'bz-flathub-auth-provider.txt',
+  'bz-flathub-curated-selection.txt',
   'bz-flathub-sub-category.txt',
   'bz-flatpak-repo.txt',
   'bz-flatpak-bundle-result.txt',
@@ -309,6 +314,7 @@ blueprints = custom_target('blueprints',
     'bz-featured-carousel.blp',
     'bz-featured-tile.blp',
     'bz-flathub-category-section.blp',
+    'bz-flathub-curated-section.blp',
     'bz-flathub-page.blp',
     'bz-full-view.blp',
     'bz-hardware-support-dialog.blp',

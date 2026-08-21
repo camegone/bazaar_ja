@@ -65,6 +65,7 @@
 #include "bz-transaction-manager.h"
 #include "bz-window.h"
 #include "bz-yaml-parser.h"
+#include "dex-utils.h"
 #include "env.h"
 #include "error.h"
 #include "io.h"
@@ -147,133 +148,85 @@ BZ_DEFINE_DATA (
     BZ_RELEASE_DATA (block, g_regex_unref);
     BZ_RELEASE_DATA (allow, g_regex_unref))
 
-BZ_DEFINE_DATA (
-    respond_to_flatpak,
-    RespondToFlatpak,
-    {
-      GWeakRef              *self;
-      BzBackendNotification *notif;
-    },
-    BZ_RELEASE_DATA (self, bz_weak_release);
-    BZ_RELEASE_DATA (notif, g_object_unref))
-
-BZ_DEFINE_DATA (
-    cache_write_back,
-    CacheWriteBack,
-    {
-      GWeakRef  *self;
-      GPtrArray *notify_groups;
-      gboolean   update_filters;
-    },
-    BZ_RELEASE_DATA (self, bz_weak_release);
-    BZ_RELEASE_DATA (notify_groups, g_ptr_array_unref))
-
-BZ_DEFINE_DATA (
-    open_flatpakref,
-    OpenFlatpakref,
-    {
-      GWeakRef *self;
-      GFile    *file;
-    },
-    BZ_RELEASE_DATA (self, bz_weak_release);
-    BZ_RELEASE_DATA (file, g_object_unref))
-
-BZ_DEFINE_DATA (
-    open_metainfo,
-    OpenMetainfo,
-    {
-      GWeakRef *self;
-      GFile    *file;
-    },
-    BZ_RELEASE_DATA (self, bz_weak_release);
-    BZ_RELEASE_DATA (file, g_object_unref))
-
-BZ_DEFINE_DATA (
-    open_appstream,
-    OpenAppstream,
-    {
-      GWeakRef *self;
-      char     *id;
-    },
-    BZ_RELEASE_DATA (self, bz_weak_release);
-    BZ_RELEASE_DATA (id, g_free))
-
-BZ_DEFINE_DATA (
-    enumerate_disk_io,
-    EnumerateDiskIo,
-    {
-      BzEntryCacheManager *cache;
-    },
-    BZ_RELEASE_DATA (cache, g_object_unref))
+static DexFuture *
+init_fiber (BzWeakRef *wr);
 
 static DexFuture *
-init_fiber (GWeakRef *wr);
+enumerate_disk_groups_fiber (BzWeakRef *wr);
 
 static DexFuture *
-enumerate_disk_groups_fiber (GWeakRef *wr);
+enumerate_disk_io_fiber (BzEntryCacheManager *cache);
 
 static DexFuture *
-enumerate_disk_io_fiber (EnumerateDiskIoData *data);
+enumerate_disk_entries_fiber (BzWeakRef *wr);
 
 static DexFuture *
-enumerate_disk_entries_fiber (GWeakRef *wr);
+check_for_updates_fiber (BzWeakRef *wr);
 
 static DexFuture *
-check_for_updates_fiber (GWeakRef *wr);
+cache_flathub_fiber (BzWeakRef *wr);
 
 static DexFuture *
-cache_flathub_fiber (GWeakRef *wr);
+cache_groups_fiber (BzWeakRef *wr);
 
 static DexFuture *
-cache_groups_fiber (GWeakRef *wr);
+respond_to_flatpak_fiber (BzWeakRef             *wr,
+                          BzBackendNotification *notif);
 
 static DexFuture *
-respond_to_flatpak_fiber (RespondToFlatpakData *data);
+open_appstream_fiber (BzWeakRef  *wr,
+                      const char *id);
 
 static DexFuture *
-open_appstream_fiber (OpenAppstreamData *data);
+open_flatpakref_fiber (BzWeakRef *wr,
+                       GFile     *file);
 
 static DexFuture *
-open_flatpakref_fiber (OpenFlatpakrefData *data);
-
-static DexFuture *
-open_metainfo_fiber (OpenMetainfoData *data);
+open_metainfo_fiber (BzWeakRef *wr,
+                     GFile     *file);
 
 static void
 open_metainfo_take (BzApplication *self,
                     GFile         *file);
 
+static void
+open_location_take (BzApplication *self,
+                    const char    *name_for_suffix_check,
+                    GFile         *file);
+
 static DexFuture *
 backend_sync_finally (DexFuture *future,
-                      GWeakRef  *wr);
+                      BzWeakRef *wr);
 
 static DexFuture *
 backend_sync_save_groups_finally (DexFuture *future,
-                                  GWeakRef  *wr);
+                                  BzWeakRef *wr);
 
 static DexFuture *
 init_fiber_finally (DexFuture *future,
-                    GWeakRef  *wr);
+                    BzWeakRef *wr);
 
 static DexFuture *
 init_sync_finally (DexFuture *future,
-                   GWeakRef  *wr);
+                   BzWeakRef *wr);
 
 static DexFuture *
 flathub_update_finally (DexFuture *future,
-                        GWeakRef  *wr);
+                        BzWeakRef *wr);
 
 static DexFuture *
-cache_write_back_finally (DexFuture          *future,
-                          CacheWriteBackData *data);
+cache_write_back_finally (DexFuture *future,
+                          BzWeakRef *wr,
+                          GPtrArray *notify_groups,
+                          gboolean   update_filters);
 
 static DexFuture *
 sync_finally (DexFuture *future,
-              GWeakRef  *wr);
+              BzWeakRef *wr);
 
 static DexFuture *
 watch_backend_notifs_then_loop_cb (DexFuture *future,
-                                   GWeakRef  *wr);
+                                   BzWeakRef *wr);
 
 static BzEntryGroup *
 ensure_group_and_add (BzApplication *self,
@@ -299,7 +252,7 @@ static gboolean
 periodic_timeout_cb (BzApplication *self);
 
 static gboolean
-scheduled_timeout_cb (GWeakRef *wr);
+scheduled_timeout_cb (BzWeakRef *wr);
 
 static void
 network_status_changed (BzApplication   *self,
@@ -310,6 +263,11 @@ static void
 disable_blocklists_changed (BzApplication *self,
                             GParamSpec    *pspec,
                             BzStateInfo   *state);
+
+static void
+transactions_active_changed (BzApplication        *self,
+                             GParamSpec           *pspec,
+                             BzTransactionManager *transactions);
 
 static void
 show_hide_app_setting_changed (BzApplication *self,
@@ -477,6 +435,7 @@ bz_application_command_line (GApplication            *app,
   gint argc                           = 0;
   g_auto (GStrv) argv                 = NULL;
   gboolean help                       = FALSE;
+  gboolean no_window                  = FALSE;
   g_auto (GStrv) blocklists_strv      = NULL;
   g_auto (GStrv) content_configs_strv = NULL;
   g_auto (GStrv) locations            = NULL;
@@ -484,7 +443,7 @@ bz_application_command_line (GApplication            *app,
 
   GOptionEntry main_entries[] = {
     { "help", 0, 0, G_OPTION_ARG_NONE, &help, "Print help" },
-    { "no-window", 0, 0, G_OPTION_ARG_NONE, NULL, "Ensure the service is running without creating a new window (daemon)" },
+    { "no-window", 0, 0, G_OPTION_ARG_NONE, &no_window, "Ensure the service is running without creating a new window (daemon)" },
     { "extra-blocklist", 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &blocklists_strv, "Add an extra blocklist to read from" },
     { "extra-curated-config", 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &content_configs_strv, "Add an extra yaml file with which to configure the app browser" },
     /* Here for backwards compat */
@@ -530,6 +489,9 @@ bz_application_command_line (GApplication            *app,
           g_application_command_line_printerr (cmdline, "%s\n", help_text);
           return EXIT_SUCCESS;
         }
+
+      if (no_window)
+        g_application_command_line_printerr (cmdline, "--no-window only works with bazaar-daemon\n");
     }
 
   if (!self->running)
@@ -575,13 +537,13 @@ bz_application_command_line (GApplication            *app,
           dex_scheduler_get_default (),
           bz_get_dex_stack_size (),
           (DexFiberFunc) init_fiber,
-          bz_track_weak (self),
-          bz_weak_release);
+          bz_weak_ref_new (self),
+          (GDestroyNotify) bz_weak_ref_unref);
       init = dex_future_finally (
           init,
           (DexFutureCallback) init_fiber_finally,
-          bz_track_weak (self),
-          bz_weak_release);
+          bz_weak_ref_new (self),
+          (GDestroyNotify) bz_weak_ref_unref);
       dex_future_disown (g_steal_pointer (&init));
     }
 
@@ -714,6 +676,28 @@ bz_application_show_app_id_action (GSimpleAction *action,
       app_id = g_variant_get_string (parameter, NULL);
       bz_window_show_app_id (BZ_WINDOW (window), app_id);
     }
+}
+
+static void
+bz_application_open_location_action (GSimpleAction *action,
+                                     GVariant      *parameter,
+                                     gpointer       user_data)
+{
+  BzApplication *self         = user_data;
+  const char    *uri          = NULL;
+  g_autoptr (GFile) file      = NULL;
+  g_autofree char *basename   = NULL;
+
+  g_assert (BZ_IS_APPLICATION (self));
+
+  uri = g_variant_get_string (parameter, NULL);
+  if (uri == NULL || *uri == '\0')
+    return;
+
+  file     = g_file_new_for_uri (uri);
+  basename = g_file_get_basename (file);
+
+  open_location_take (self, basename, g_object_ref (file));
 }
 
 static void
@@ -891,6 +875,7 @@ static const GActionEntry app_actions[] = {
   {            "donate",            bz_application_donate_action, NULL },
   {  "bazaar-inspector",  bz_application_bazaar_inspector_action, NULL },
   { "toggle-debug-mode", bz_application_toggle_debug_mode_action, NULL },
+  {     "open-location",     bz_application_open_location_action,  "s" },
 };
 
 static void
@@ -963,7 +948,7 @@ bz_state_info_get_default (void)
 }
 
 static DexFuture *
-init_fiber (GWeakRef *wr)
+init_fiber (BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self        = NULL;
   g_autoptr (GError) local_error        = NULL;
@@ -979,7 +964,7 @@ init_fiber (GWeakRef *wr)
   g_autofree char *cache_version_path   = NULL;
   g_autoptr (GFile) cache_version_file  = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
 /* Here until Ubuntu fixes its apparmor crap. */
 #ifdef SANDBOXED_LIBFLATPAK
@@ -991,6 +976,7 @@ init_fiber (GWeakRef *wr)
       gboolean      os_check_result                     = FALSE;
       GInputStream *os_check_stdout_pipe                = NULL;
       g_autoptr (GBytes) os_out                         = NULL;
+      gboolean affected_ubuntu                          = FALSE;
 
       os_check_launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_STDOUT_PIPE);
       os_check          = g_subprocess_launcher_spawn (os_check_launcher, &os_check_error,
@@ -1010,8 +996,23 @@ init_fiber (GWeakRef *wr)
       else
         g_warning ("Failed to spawn ubuntu check subprocess: %s", os_check_error->message);
 
-      if (os_out != NULL &&
-          strstr (g_bytes_get_data (os_out, NULL), "ID=ubuntu") != NULL)
+      if (os_out != NULL)
+        {
+          const char *data  = NULL;
+          const char *ver   = NULL;
+          int         major = 0;
+          int         minor = 0;
+
+          data = g_bytes_get_data (os_out, NULL);
+          ver  = strstr (data, "VERSION_ID=\"");
+
+          if (strstr (data, "ID=ubuntu") != NULL &&
+              ver != NULL &&
+              sscanf (ver + strlen ("VERSION_ID=\""), "%d.%d", &major, &minor) == 2)
+            affected_ubuntu = major > 25 || (major == 25 && minor >= 10);
+        }
+
+      if (affected_ubuntu)
         {
           GtkWindow       *window   = NULL;
           AdwDialog       *alert    = NULL;
@@ -1027,7 +1028,7 @@ init_fiber (GWeakRef *wr)
           adw_alert_dialog_format_heading (ADW_ALERT_DIALOG (alert), _ ("Ubuntu Troubles!"));
           adw_alert_dialog_format_body_markup (
               ADW_ALERT_DIALOG (alert),
-              _ ("The more recent versions of Ubuntu have messed up default security rules, "
+              _ ("Ubuntu 25.10 and newer have messed up default security rules, "
                  "making it <b>impossible to install apps</b> from the Flatpak version "
                  "of Bazaar, please just use the normal package for now by using\n\n"
                  "<tt>sudo apt install bazaar</tt>\n\n"
@@ -1058,7 +1059,8 @@ init_fiber (GWeakRef *wr)
 
   if (dex_await (dex_file_query_exists (root_cache_dir_file), NULL))
     {
-      gboolean wipe_cache = TRUE;
+      gboolean wipe_cache       = TRUE;
+      gboolean package_upgraded = TRUE;
 
       if (dex_await (dex_file_query_exists (cache_version_file), NULL))
         {
@@ -1069,20 +1071,26 @@ init_fiber (GWeakRef *wr)
             {
               g_autoptr (GVariant) variant = NULL;
 
-              variant = g_variant_new_from_bytes (G_VARIANT_TYPE_STRING, bytes, FALSE);
+              variant = g_variant_new_from_bytes (G_VARIANT_TYPE ("(ss)"), bytes, FALSE);
               if (variant != NULL)
                 {
-                  const char *version = NULL;
+                  const char *stored_package_version = NULL;
+                  const char *stored_cache_version   = NULL;
 
-                  version    = g_variant_get_string (variant, NULL);
-                  wipe_cache = g_strcmp0 (version, PACKAGE_VERSION) != 0;
+                  g_variant_get (variant, "(&s&s)", &stored_package_version, &stored_cache_version);
+
+                  wipe_cache       = g_strcmp0 (stored_cache_version, CACHE_VERSION) != 0;
+                  package_upgraded = g_strcmp0 (stored_package_version, PACKAGE_VERSION) != 0;
                 }
             }
         }
 
+      if (package_upgraded)
+        bz_state_info_set_donation_prompt_dismissed (self->state, FALSE);
+
       if (wipe_cache)
         {
-          bz_state_info_set_donation_prompt_dismissed (self->state, FALSE);
+          g_settings_set_int64 (self->settings, "last-refresh-time", 0);
 
           g_info ("Version incompatibility detected: clearing cache");
           dex_await (bz_reap_file_dex (root_cache_dir_file), NULL);
@@ -1100,7 +1108,7 @@ init_fiber (GWeakRef *wr)
         g_autoptr (GVariant) variant = NULL;
         g_autoptr (GBytes) bytes     = NULL;
 
-        variant = g_variant_new_string (PACKAGE_VERSION);
+        variant = g_variant_new ("(ss)", PACKAGE_VERSION, CACHE_VERSION);
         bytes   = g_variant_get_data_as_bytes (variant);
         dex_await (dex_file_replace_contents_bytes (
                        cache_version_file, bytes, NULL, FALSE,
@@ -1224,8 +1232,8 @@ init_fiber (GWeakRef *wr)
           dex_scheduler_get_default (),
           bz_get_dex_stack_size (),
           (DexFiberFunc) enumerate_disk_groups_fiber,
-          bz_track_weak (self),
-          bz_weak_release),
+          bz_weak_ref_ref (wr),
+          (GDestroyNotify) bz_weak_ref_unref),
       NULL);
 
   self->had_cache_on_init = g_list_model_get_n_items (G_LIST_MODEL (self->groups)) > 0;
@@ -1296,7 +1304,7 @@ init_fiber (GWeakRef *wr)
 }
 
 static DexFuture *
-enumerate_disk_groups_fiber (GWeakRef *wr)
+enumerate_disk_groups_fiber (BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self      = NULL;
   g_autoptr (GError) local_error      = NULL;
@@ -1307,7 +1315,7 @@ enumerate_disk_groups_fiber (GWeakRef *wr)
   g_autoptr (GVariantIter) iter       = NULL;
   gboolean has_flathub_group          = FALSE;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   groups_cache_file = fiber_dup_cache_file ("groups-cache", &groups_cache, &local_error);
   if (groups_cache_file == NULL)
@@ -1349,9 +1357,10 @@ enumerate_disk_groups_fiber (GWeakRef *wr)
       group = bz_entry_group_new (self->entry_factory);
       if (bz_entry_group_deserialize (group, group_variant))
         {
-          const char *id = NULL;
+          const char *id           = NULL;
+          gboolean    is_installed = FALSE;
 
-          bz_entry_group_reconcile_with_installed_set (group, self->installed_set);
+          is_installed = bz_entry_group_reconcile_with_installed_set (group, self->installed_set);
 
           if (!has_flathub_group &&
               bz_entry_group_get_is_flathub (group))
@@ -1366,7 +1375,7 @@ enumerate_disk_groups_fiber (GWeakRef *wr)
                 g_strdup (id),
                 g_object_ref (group));
 
-          if (bz_entry_group_get_removable (group) > 0)
+          if (is_installed)
             g_list_store_insert_sorted (
                 self->installed_apps, group,
                 (GCompareDataFunc) cmp_group, NULL);
@@ -1380,14 +1389,14 @@ enumerate_disk_groups_fiber (GWeakRef *wr)
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
       (DexFiberFunc) check_for_updates_fiber,
-      bz_track_weak (self),
-      bz_weak_release));
+      bz_weak_ref_ref (wr),
+      (GDestroyNotify) bz_weak_ref_unref));
 
   return dex_future_new_for_boolean (has_flathub_group);
 }
 
 static DexFuture *
-enumerate_disk_io_fiber (EnumerateDiskIoData *data)
+enumerate_disk_io_fiber (BzEntryCacheManager *cache)
 {
   g_autoptr (GError) local_error    = NULL;
   g_autoptr (GHashTable) cached_set = NULL;
@@ -1395,7 +1404,7 @@ enumerate_disk_io_fiber (EnumerateDiskIoData *data)
   GHashTableIter iter               = { 0 };
 
   cached_set = dex_await_boxed (
-      bz_entry_cache_manager_enumerate_disk (data->cache),
+      bz_entry_cache_manager_enumerate_disk (cache),
       &local_error);
   if (cached_set == NULL)
     return dex_future_new_for_error (g_steal_pointer (&local_error));
@@ -1415,7 +1424,7 @@ enumerate_disk_io_fiber (EnumerateDiskIoData *data)
         g_ptr_array_add (
             batch,
             bz_entry_cache_manager_get_by_checksum (
-                data->cache, checksum));
+                cache, checksum));
 
       if (batch->len > 0)
         dex_await (dex_future_allv (
@@ -1447,26 +1456,23 @@ enumerate_disk_io_fiber (EnumerateDiskIoData *data)
 }
 
 static DexFuture *
-enumerate_disk_entries_fiber (GWeakRef *wr)
+enumerate_disk_entries_fiber (BzWeakRef *wr)
 {
-  g_autoptr (BzApplication) self          = NULL;
-  g_autoptr (GError) local_error          = NULL;
-  g_autoptr (GPtrArray) entries           = NULL;
-  g_autoptr (EnumerateDiskIoData) io_data = NULL;
-  gboolean has_flathub_entry              = FALSE;
+  g_autoptr (BzApplication) self = NULL;
+  g_autoptr (GError) local_error = NULL;
+  g_autoptr (GPtrArray) entries  = NULL;
+  gboolean has_flathub_entry     = FALSE;
 
-  bz_weak_get_or_return_reject (self, wr);
-
-  io_data        = enumerate_disk_io_data_new ();
-  io_data->cache = g_object_ref (self->cache);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   entries = dex_await_boxed (
-      dex_scheduler_spawn (
+      dex_limiter_run (
+          bz_get_io_limiter (),
           bz_get_io_scheduler (),
           bz_get_dex_stack_size (),
           (DexFiberFunc) enumerate_disk_io_fiber,
-          enumerate_disk_io_data_ref (io_data),
-          enumerate_disk_io_data_unref),
+          g_object_ref (self->cache),
+          g_object_unref),
       &local_error);
 
   if (entries == NULL)
@@ -1501,18 +1507,18 @@ enumerate_disk_entries_fiber (GWeakRef *wr)
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
       (DexFiberFunc) check_for_updates_fiber,
-      bz_track_weak (self),
-      bz_weak_release));
+      bz_weak_ref_ref (wr),
+      (GDestroyNotify) bz_weak_ref_unref));
 
   return dex_future_new_for_boolean (has_flathub_entry);
 }
 
 static DexFuture *
-check_for_updates_fiber (GWeakRef *wr)
+check_for_updates_fiber (BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   fiber_check_for_updates (self);
   finish_with_background_task_label (self);
@@ -1521,7 +1527,7 @@ check_for_updates_fiber (GWeakRef *wr)
 }
 
 static DexFuture *
-cache_flathub_fiber (GWeakRef *wr)
+cache_flathub_fiber (BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self       = NULL;
   g_autoptr (GError) local_error       = NULL;
@@ -1529,7 +1535,7 @@ cache_flathub_fiber (GWeakRef *wr)
   g_autofree char *flathub_cache       = NULL;
   g_autoptr (GFile) flathub_cache_file = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   flathub_cache_file = fiber_dup_cache_file ("flathub-cache", &flathub_cache, &local_error);
   if (flathub_cache_file != NULL)
@@ -1566,7 +1572,7 @@ cache_flathub_fiber (GWeakRef *wr)
 }
 
 static DexFuture *
-cache_groups_fiber (GWeakRef *wr)
+cache_groups_fiber (BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self      = NULL;
   g_autoptr (GError) local_error      = NULL;
@@ -1581,7 +1587,7 @@ cache_groups_fiber (GWeakRef *wr)
   g_autofree char *module_dir         = NULL;
   g_autofree char *index_path         = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   groups_cache_file = fiber_dup_cache_file ("groups-cache", &groups_cache, &local_error);
   if (groups_cache_file == NULL)
@@ -1627,10 +1633,10 @@ cache_groups_fiber (GWeakRef *wr)
 }
 
 static DexFuture *
-respond_to_flatpak_fiber (RespondToFlatpakData *data)
+respond_to_flatpak_fiber (BzWeakRef             *wr,
+                          BzBackendNotification *notif)
 {
   g_autoptr (BzApplication) self            = NULL;
-  BzBackendNotification *notif              = data->notif;
   g_autoptr (GError) local_error            = NULL;
   g_autoptr (GPtrArray) build_futures       = NULL;
   g_autoptr (GPtrArray) build_notify_groups = NULL;
@@ -1639,7 +1645,7 @@ respond_to_flatpak_fiber (RespondToFlatpakData *data)
   gboolean update_labels                    = FALSE;
   gboolean update_filters                   = FALSE;
 
-  bz_weak_get_or_return_reject (self, data->self);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   build_futures       = g_ptr_array_new_with_free_func (dex_unref);
   build_notify_groups = g_ptr_array_new_with_free_func (g_object_unref);
@@ -2042,23 +2048,18 @@ respond_to_flatpak_fiber (RespondToFlatpakData *data)
 
   if (build_futures->len > 0)
     {
-      g_autoptr (DexFuture) future                   = NULL;
-      g_autoptr (CacheWriteBackData) write_back_data = NULL;
+      g_autoptr (DexFuture) future = NULL;
 
       future = dex_future_allv (
           (DexFuture *const *) build_futures->pdata,
           build_futures->len);
-
-      write_back_data                 = cache_write_back_data_new ();
-      write_back_data->self           = bz_track_weak (self);
-      write_back_data->notify_groups  = g_ptr_array_ref (build_notify_groups);
-      write_back_data->update_filters = update_filters;
-
-      future = dex_future_finally (
+      future = bz_future_finallyv (
           future,
-          (DexFutureCallback) cache_write_back_finally,
-          cache_write_back_data_ref (write_back_data),
-          cache_write_back_data_unref);
+          G_CALLBACK (cache_write_back_finally),
+          3,
+          BZ_TYPE_WEAK_REF, wr,
+          G_TYPE_PTR_ARRAY, build_notify_groups,
+          G_TYPE_BOOLEAN, update_filters);
       dex_future_disown (g_steal_pointer (&future));
     }
 
@@ -2085,12 +2086,12 @@ respond_to_flatpak_fiber (RespondToFlatpakData *data)
 }
 
 static DexFuture *
-open_appstream_fiber (OpenAppstreamData *data)
+open_appstream_fiber (BzWeakRef  *wr,
+                      const char *id)
 {
   g_autoptr (BzApplication) self = NULL;
-  char *id                       = data->id;
 
-  bz_weak_get_or_return_reject (self, data->self);
+  bz_weak_get_or_return_reject (self, &wr->ref);
   dex_await (dex_ref (self->ready_to_open_files), NULL);
 
   open_generic_id (self, id);
@@ -2098,15 +2099,15 @@ open_appstream_fiber (OpenAppstreamData *data)
 }
 
 static DexFuture *
-open_flatpakref_fiber (OpenFlatpakrefData *data)
+open_flatpakref_fiber (BzWeakRef *wr,
+                       GFile     *file)
 {
   g_autoptr (BzApplication) self = NULL;
-  GFile *file                    = data->file;
   g_autoptr (GError) local_error = NULL;
   g_autoptr (DexFuture) future   = NULL;
   const GValue *value            = NULL;
 
-  bz_weak_get_or_return_reject (self, data->self);
+  bz_weak_get_or_return_reject (self, &wr->ref);
   dex_await (dex_ref (self->ready_to_open_files), NULL);
 
   future = bz_backend_load_local_package (BZ_BACKEND (self->flatpak), file, NULL);
@@ -2167,18 +2168,18 @@ open_flatpakref_fiber (OpenFlatpakrefData *data)
 }
 
 static DexFuture *
-open_metainfo_fiber (OpenMetainfoData *data)
+open_metainfo_fiber (BzWeakRef *wr,
+                     GFile     *file)
 {
   g_autoptr (BzApplication) self    = NULL;
-  GFile *file                       = data->file;
   g_autoptr (GError) local_error    = NULL;
   g_autoptr (DexFuture) pick_future = NULL;
-  const GValue *value               = NULL;
+  const GValue         *value       = NULL;
   BzMetainfoPickResult *result      = NULL;
   g_autoptr (BzEntry) entry         = NULL;
   GtkWindow *window                 = NULL;
 
-  bz_weak_get_or_return_reject (self, data->self);
+  bz_weak_get_or_return_reject (self, &wr->ref);
   dex_await (dex_ref (self->ready_to_open_files), NULL);
 
   window = get_or_create_window (self);
@@ -2221,7 +2222,7 @@ open_metainfo_fiber (OpenMetainfoData *data)
 
 static DexFuture *
 init_fiber_finally (DexFuture *future,
-                    GWeakRef  *wr)
+                    BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self      = NULL;
   g_autoptr (GError) local_error      = NULL;
@@ -2230,7 +2231,7 @@ init_fiber_finally (DexFuture *future,
   gint64        now                   = 0;
   gint64        seconds_since_refresh = 0;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   value = dex_future_get_value (future, &local_error);
   if (value != NULL)
@@ -2240,8 +2241,8 @@ init_fiber_finally (DexFuture *future,
       self->notif_watch = dex_future_then_loop (
           dex_channel_receive (self->flatpak_notifs),
           (DexFutureCallback) watch_backend_notifs_then_loop_cb,
-          bz_track_weak (self),
-          bz_weak_release);
+          bz_weak_ref_ref (wr),
+          (GDestroyNotify) bz_weak_ref_unref);
 
       last_refresh          = g_settings_get_int64 (self->settings, "last-refresh-time");
       now                   = g_get_real_time () / G_USEC_PER_SEC;
@@ -2256,8 +2257,8 @@ init_fiber_finally (DexFuture *future,
           sync_future = dex_future_finally (
               sync_future,
               (DexFutureCallback) init_sync_finally,
-              bz_track_weak (self),
-              bz_weak_release);
+              bz_weak_ref_ref (wr),
+              (GDestroyNotify) bz_weak_ref_unref);
           self->sync = g_steal_pointer (&sync_future);
         }
       else
@@ -2272,8 +2273,8 @@ init_fiber_finally (DexFuture *future,
               dex_scheduler_get_default (),
               bz_get_dex_stack_size (),
               (DexFiberFunc) check_for_updates_fiber,
-              bz_track_weak (self),
-              bz_weak_release));
+              bz_weak_ref_ref (wr),
+              (GDestroyNotify) bz_weak_ref_unref));
         }
 
       self->periodic_timeout_source = g_timeout_add_seconds (
@@ -2310,12 +2311,12 @@ init_fiber_finally (DexFuture *future,
 
 static DexFuture *
 init_sync_finally (DexFuture *future,
-                   GWeakRef  *wr)
+                   BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
   g_autoptr (GError) local_error = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   /* Do nothing */
 
@@ -2324,11 +2325,11 @@ init_sync_finally (DexFuture *future,
 
 static DexFuture *
 backend_sync_finally (DexFuture *future,
-                      GWeakRef  *wr)
+                      BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   if (dex_future_is_resolved (future))
     {
@@ -2338,14 +2339,14 @@ backend_sync_finally (DexFuture *future,
           dex_scheduler_get_default (),
           bz_get_dex_stack_size (),
           (DexFiberFunc) enumerate_disk_entries_fiber,
-          bz_track_weak (self),
-          bz_weak_release);
+          bz_weak_ref_ref (wr),
+          (GDestroyNotify) bz_weak_ref_unref);
 
       enum_future = dex_future_finally (
           enum_future,
           (DexFutureCallback) backend_sync_save_groups_finally,
-          bz_track_weak (self),
-          bz_weak_release);
+          bz_weak_ref_ref (wr),
+          (GDestroyNotify) bz_weak_ref_unref);
 
       return g_steal_pointer (&enum_future);
     }
@@ -2355,27 +2356,27 @@ backend_sync_finally (DexFuture *future,
 
 static DexFuture *
 backend_sync_save_groups_finally (DexFuture *future,
-                                  GWeakRef  *wr)
+                                  BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   return dex_scheduler_spawn (
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
       (DexFiberFunc) cache_groups_fiber,
-      bz_track_weak (self),
-      bz_weak_release);
+      bz_weak_ref_ref (wr),
+      (GDestroyNotify) bz_weak_ref_unref);
 }
 
 static DexFuture *
 flathub_update_finally (DexFuture *future,
-                        GWeakRef  *wr)
+                        BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   if (dex_future_is_resolved (future))
     {
@@ -2389,7 +2390,8 @@ flathub_update_finally (DexFuture *future,
           dex_scheduler_get_default (),
           bz_get_dex_stack_size (),
           (DexFiberFunc) cache_flathub_fiber,
-          bz_track_weak (self), bz_weak_release);
+          bz_weak_ref_ref (wr),
+          (GDestroyNotify) bz_weak_ref_unref);
     }
   else
     {
@@ -2399,14 +2401,14 @@ flathub_update_finally (DexFuture *future,
 }
 
 static DexFuture *
-cache_write_back_finally (DexFuture          *future,
-                          CacheWriteBackData *data)
+cache_write_back_finally (DexFuture *future,
+                          BzWeakRef *wr,
+                          GPtrArray *notify_groups,
+                          gboolean   update_filters)
 {
   g_autoptr (BzApplication) self = NULL;
-  GPtrArray *notify_groups       = data->notify_groups;
-  gboolean   update_filters      = data->update_filters;
 
-  bz_weak_get_or_return_reject (self, data->self);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   for (guint i = 0; i < notify_groups->len; i++)
     {
@@ -2427,11 +2429,11 @@ cache_write_back_finally (DexFuture          *future,
 
 static DexFuture *
 sync_finally (DexFuture *future,
-              GWeakRef  *wr)
+              BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   bz_state_info_set_online (self->state, dex_future_is_resolved (future));
   bz_state_info_set_allow_manual_sync (self->state, TRUE);
@@ -2451,31 +2453,27 @@ sync_finally (DexFuture *future,
 
 static DexFuture *
 watch_backend_notifs_then_loop_cb (DexFuture *future,
-                                   GWeakRef  *wr)
+                                   BzWeakRef *wr)
 {
-  g_autoptr (BzApplication) self        = NULL;
-  g_autoptr (GError) local_error        = NULL;
-  const GValue          *value          = NULL;
-  BzBackendNotification *notif          = NULL;
-  g_autoptr (RespondToFlatpakData) data = NULL;
-  g_autoptr (DexFuture) ret_future      = NULL;
+  g_autoptr (BzApplication) self   = NULL;
+  g_autoptr (GError) local_error   = NULL;
+  const GValue          *value     = NULL;
+  BzBackendNotification *notif     = NULL;
+  g_autoptr (DexFuture) ret_future = NULL;
 
-  bz_weak_get_or_return_reject (self, wr);
+  bz_weak_get_or_return_reject (self, &wr->ref);
 
   value = dex_future_get_value (future, NULL);
   g_assert (value != NULL);
   notif = g_value_get_object (value);
 
-  data        = respond_to_flatpak_data_new ();
-  data->self  = bz_track_weak (self);
-  data->notif = g_object_ref (notif);
-
-  ret_future = dex_scheduler_spawn (
+  ret_future = dex_scheduler_spawnv (
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
-      (DexFiberFunc) respond_to_flatpak_fiber,
-      respond_to_flatpak_data_ref (data),
-      respond_to_flatpak_data_unref);
+      G_CALLBACK (respond_to_flatpak_fiber),
+      2,
+      BZ_TYPE_WEAK_REF, wr,
+      BZ_TYPE_BACKEND_NOTIFICATION, notif);
   return g_steal_pointer (&ret_future);
 }
 
@@ -2759,6 +2757,11 @@ fiber_check_for_updates (BzApplication *self)
         bz_show_error_for_widget (GTK_WIDGET (window), _ ("Failed to check for updates"), local_error->message);
     }
 
+  if (update_ids != NULL || local_error == NULL)
+    g_settings_set_int64 (
+        self->settings, "last-update-check",
+        g_get_real_time () / G_USEC_PER_SEC);
+
   bz_state_info_set_checking_for_updates (self->state, FALSE);
 }
 
@@ -2817,14 +2820,14 @@ done:
 }
 
 static gboolean
-scheduled_timeout_cb (GWeakRef *wr)
+scheduled_timeout_cb (BzWeakRef *wr)
 {
   g_autoptr (BzApplication) self = NULL;
   gboolean have_connection       = FALSE;
 
   /* Use weak ref here since the source tag of this callback won't be tracked by
      the main application obj */
-  self = g_weak_ref_get (wr);
+  self = g_weak_ref_get (&wr->ref);
   if (self == NULL)
     goto done;
 
@@ -2865,7 +2868,8 @@ network_status_changed (BzApplication   *self,
     g_timeout_add_full (
         G_PRIORITY_DEFAULT,
         500, (GSourceFunc) scheduled_timeout_cb,
-        bz_track_weak (self), bz_weak_release);
+        bz_weak_ref_new (self),
+        (GDestroyNotify) bz_weak_ref_unref);
 
   bz_state_info_set_have_connection (self->state, have_connection);
   bz_state_info_set_metered_connection (self->state, is_metered);
@@ -2878,6 +2882,17 @@ disable_blocklists_changed (BzApplication *self,
 {
   gtk_filter_changed (GTK_FILTER (self->group_filter), GTK_FILTER_CHANGE_DIFFERENT);
   gtk_filter_changed (GTK_FILTER (self->appid_filter), GTK_FILTER_CHANGE_DIFFERENT);
+}
+
+static void
+transactions_active_changed (BzApplication        *self,
+                             GParamSpec           *pspec,
+                             BzTransactionManager *transactions)
+{
+  if (bz_transaction_manager_get_active (transactions))
+    g_application_hold (G_APPLICATION (self));
+  else
+    g_application_release (G_APPLICATION (self));
 }
 
 static void
@@ -3604,6 +3619,11 @@ init_service_struct (BzApplication *self,
   self->transactions = bz_transaction_manager_new ();
   bz_transaction_manager_set_config (self->transactions, self->config);
 
+  g_signal_connect_swapped (
+      self->transactions, "notify::active",
+      G_CALLBACK (transactions_active_changed),
+      self);
+
   bz_state_info_set_all_entry_groups (self->state, G_LIST_MODEL (self->groups));
   bz_state_info_set_all_installed_entry_groups (self->state, G_LIST_MODEL (self->installed_apps));
   bz_state_info_set_filtered_entry_groups (self->state, G_LIST_MODEL (self->group_filter_model));
@@ -3701,26 +3721,25 @@ static void
 open_appstream_take (BzApplication *self,
                      char          *appstream)
 {
-  const char *id                     = NULL;
-  g_autoptr (OpenAppstreamData) data = NULL;
+  g_autoptr (BzWeakRef) wr = NULL;
+  const char *id           = NULL;
 
   g_info ("Loading appstream link %s...", appstream);
+
+  wr = bz_weak_ref_new (self);
 
   if (g_str_has_prefix (appstream, "appstream://"))
     id = appstream + strlen ("appstream://");
   else
     id = appstream + strlen ("appstream:");
 
-  data       = open_appstream_data_new ();
-  data->self = bz_track_weak (self);
-  data->id   = g_strdup (id);
-
-  dex_future_disown (dex_scheduler_spawn (
+  dex_future_disown (dex_scheduler_spawnv (
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
-      (DexFiberFunc) open_appstream_fiber,
-      open_appstream_data_ref (data),
-      open_appstream_data_unref));
+      G_CALLBACK (open_appstream_fiber),
+      2,
+      BZ_TYPE_WEAK_REF, wr,
+      G_TYPE_STRING, id));
   g_free (appstream);
 }
 
@@ -3728,10 +3747,12 @@ static void
 open_flatpakref_take (BzApplication *self,
                       GFile         *file)
 {
-  g_autoptr (GError) local_error      = NULL;
-  gboolean         result             = FALSE;
-  g_autofree char *path               = NULL;
-  g_autoptr (OpenFlatpakrefData) data = NULL;
+  g_autoptr (GError) local_error = NULL;
+  g_autoptr (BzWeakRef) wr       = NULL;
+  gboolean         result        = FALSE;
+  g_autofree char *path          = NULL;
+
+  wr = bz_weak_ref_new (self);
 
   path = g_file_get_path (file);
   if (path != NULL)
@@ -3769,34 +3790,45 @@ open_flatpakref_take (BzApplication *self,
         }
     }
 
-  data       = open_flatpakref_data_new ();
-  data->self = bz_track_weak (self);
-  data->file = g_steal_pointer (&file);
-
-  dex_future_disown (dex_scheduler_spawn (
+  dex_future_disown (dex_scheduler_spawnv (
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
-      (DexFiberFunc) open_flatpakref_fiber,
-      open_flatpakref_data_ref (data),
-      open_flatpakref_data_unref));
+      G_CALLBACK (open_flatpakref_fiber),
+      2,
+      BZ_TYPE_WEAK_REF, wr,
+      G_TYPE_FILE, file));
+  g_object_unref (file);
 }
 
 static void
 open_metainfo_take (BzApplication *self,
                     GFile         *file)
 {
-  g_autoptr (OpenMetainfoData) data = NULL;
+  g_autoptr (BzWeakRef) wr = NULL;
 
-  data       = open_metainfo_data_new ();
-  data->self = bz_track_weak (self);
-  data->file = g_steal_pointer (&file);
+  wr = bz_weak_ref_new (self);
 
-  dex_future_disown (dex_scheduler_spawn (
+  dex_future_disown (dex_scheduler_spawnv (
       dex_scheduler_get_default (),
       bz_get_dex_stack_size (),
-      (DexFiberFunc) open_metainfo_fiber,
-      open_metainfo_data_ref (data),
-      open_metainfo_data_unref));
+      G_CALLBACK (open_metainfo_fiber),
+      2,
+      BZ_TYPE_WEAK_REF, wr,
+      G_TYPE_FILE, file));
+  g_object_unref (file);
+}
+
+static void
+open_location_take (BzApplication *self,
+                    const char    *name_for_suffix_check,
+                    GFile         *file)
+{
+  if (name_for_suffix_check != NULL &&
+      (g_str_has_suffix (name_for_suffix_check, ".metainfo.xml") ||
+       g_str_has_suffix (name_for_suffix_check, ".appdata.xml")))
+    open_metainfo_take (self, file);
+  else
+    open_flatpakref_take (self, file);
 }
 
 static void
@@ -3820,18 +3852,14 @@ command_line_open_location (BzApplication           *self,
   else
     {
       const char *cwd = NULL;
-      cwd = g_application_command_line_get_cwd (cmdline);
 
+      cwd  = g_application_command_line_get_cwd (cmdline);
       file = cwd != NULL
                  ? g_file_new_build_filename (cwd, location, NULL)
                  : g_file_new_for_path (location);
     }
 
-  if (g_str_has_suffix (location, ".metainfo.xml") ||
-      g_str_has_suffix (location, ".appdata.xml"))
-    open_metainfo_take (self, g_steal_pointer (&file));
-  else
-    open_flatpakref_take (self, g_steal_pointer (&file));
+  open_location_take (self, location, g_steal_pointer (&file));
 }
 
 static void
@@ -4121,7 +4149,8 @@ make_sync_future (BzApplication *self)
   backend_future = dex_future_finally (
       backend_future,
       (DexFutureCallback) backend_sync_finally,
-      bz_track_weak (self), bz_weak_release);
+      bz_weak_ref_new (self),
+      (GDestroyNotify) bz_weak_ref_unref);
 
   g_clear_object (&self->tmp_flathub);
   self->tmp_flathub = bz_flathub_state_new ();
@@ -4129,7 +4158,8 @@ make_sync_future (BzApplication *self)
   flathub_future    = dex_future_finally (
       flathub_future,
       (DexFutureCallback) flathub_update_finally,
-      bz_track_weak (self), bz_weak_release);
+      bz_weak_ref_new (self),
+      (GDestroyNotify) bz_weak_ref_unref);
 
   ret_future = dex_future_all (
       dex_ref (backend_future),
@@ -4138,7 +4168,8 @@ make_sync_future (BzApplication *self)
   ret_future = dex_future_finally (
       ret_future,
       (DexFutureCallback) sync_finally,
-      bz_track_weak (self), bz_weak_release);
+      bz_weak_ref_new (self),
+      (GDestroyNotify) bz_weak_ref_unref);
   return g_steal_pointer (&ret_future);
 }
 
@@ -4147,7 +4178,9 @@ finish_with_background_task_label (BzApplication *self)
 {
   if (self->n_entries_incoming > 0)
     bz_state_info_set_background_task_label_take_printf (
-        self->state, _ ("Loading %d apps…"), self->n_entries_incoming);
+        self->state,
+        ngettext ("Loading %d app…", "Loading %d apps…", self->n_entries_incoming),
+        self->n_entries_incoming);
   else if (bz_state_info_get_syncing (self->state))
     bz_state_info_set_background_task_label (self->state, _ ("Refreshing…"));
   else if (bz_state_info_get_busy (self->state))

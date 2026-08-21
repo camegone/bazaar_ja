@@ -32,6 +32,13 @@ template $BzWindow: Adw.ApplicationWindow {
     }
   }
 
+  DropTarget drop_target {
+    actions: copy;
+
+    accept => $drop_accept_cb(template);
+    drop => $drop_cb(template);
+  }
+
   content: Gtk.Overlay window_overlay {
     child: Adw.ToolbarView {
       content: Adw.BreakpointBin split_breakpoint_bin {
@@ -255,16 +262,6 @@ template $BzWindow: Adw.ApplicationWindow {
                   reveal: true;
                   visible: bind $invert_boolean(template.state as <$BzStateInfo>.busy) as <bool>;
                 }
-              };
-            }
-
-            Adw.NavigationPage {
-              tag: "view";
-              title: bind full_view.entry-group as <$BzEntryGroup>.title as <string>;
-
-              child: $BzFullView full_view {
-                state: bind template.state;
-                update => $update_cb(template);
               };
             }
           };
